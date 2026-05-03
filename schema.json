@@ -1,0 +1,121 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "devsetup config",
+  "description": "Configuration file for devsetup — a declarative dev environment bootstrapper",
+  "type": "object",
+  "required": ["name", "version", "steps"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "name": { "type": "string" },
+    "version": { "type": "string" },
+    "description": { "type": "string" },
+    "steps": { "type": "array", "items": { "$ref": "#/definitions/step" } }
+  },
+  "definitions": {
+    "step": {
+      "type": "object",
+      "required": ["name", "action"],
+      "properties": {
+        "id": { "type": "string", "description": "Unique step ID for referencing" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "action": { "$ref": "#/definitions/action" },
+        "children": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              { "type": "string", "description": "Step ID reference" },
+              { "$ref": "#/definitions/step" }
+            ]
+          }
+        },
+        "meta": { "$ref": "#/definitions/meta" }
+      }
+    },
+    "meta": {
+      "type": "object",
+      "properties": {
+        "optional": { "type": "boolean", "default": false, "description": "Only runs when referenced by ID" },
+        "fallible": { "type": "boolean", "default": false, "description": "Failure doesn't halt the run" },
+        "silent": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["stdout", "stderr"] },
+          "description": "Suppress output (shown with --verbose)"
+        }
+      }
+    },
+    "action": {
+      "type": "object",
+      "required": ["kind"],
+      "oneOf": [
+        { "$ref": "#/definitions/action_shell" },
+        { "$ref": "#/definitions/action_git" },
+        { "$ref": "#/definitions/action_fs" }
+      ]
+    },
+    "action_shell": {
+      "properties": {
+        "kind": { "const": "shell" },
+        "commands": { "type": "array", "items": { "type": "string" }, "description": "Commands run via sh -c" },
+        "dir": { "type": "string", "description": "Working directory (~ expanded)" },
+        "env": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Env vars merged with parent" },
+        "on-return": {
+          "type": "object",
+          "description": "Map exit codes to step refs. Use _ for wildcard.",
+          "additionalProperties": {
+            "oneOf": [
+              { "type": "string", "description": "Step ID" },
+              { "$ref": "#/definitions/step" }
+            ]
+          }
+        }
+      },
+      "required": ["kind", "commands"]
+    },
+    "action_git": {
+      "properties": {
+        "kind": { "const": "git" },
+        "repo": { "type": "string", "description": "Git repository URL" },
+        "dest": { "type": "string", "description": "Clone destination (~ expanded)" },
+        "if-exists": { "type": "string", "enum": ["skip", "pull", "fail"], "default": "skip" }
+      },
+      "required": ["kind", "repo", "dest"]
+    },
+    "action_fs": {
+      "properties": {
+        "kind": { "const": "fs" },
+        "action": { "type": "string", "enum": ["create", "symlink", "copy", "move", "delete"] },
+        "path": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array", "items": { "type": "string" } }
+          ],
+          "description": "Target path(s). Trailing / = directory. Used by create, delete."
+        },
+        "from": { "type": "string", "description": "Source path (symlink, copy, move)" },
+        "to": { "type": "string", "description": "Destination path (symlink, copy, move)" },
+        "recurse": { "type": "boolean", "default": false },
+        "if-exists": { "$ref": "#/definitions/condition" },
+        "if-not-exists": { "$ref": "#/definitions/condition" }
+      },
+      "required": ["kind", "action"]
+    },
+    "condition": {
+      "oneOf": [
+        { "type": "string", "enum": ["skip", "overwrite", "append", "panic"] },
+        {
+          "type": "object",
+          "required": ["execute"],
+          "properties": {
+            "execute": {
+              "oneOf": [
+                { "type": "string", "description": "Step ID" },
+                { "$ref": "#/definitions/step" }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

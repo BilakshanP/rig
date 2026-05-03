@@ -1,0 +1,146 @@
+{
+    // ── Top-level config ──
+    "name": "My Dev Environment",
+    "version": "1.0.0",
+    "description": "Optional description",
+
+    "steps": [
+        // ── Shell ──
+        {
+            "id": "install-tools",
+            "name": "Install dev tools",
+            "description": "Install ripgrep, fzf, tmux",
+            "action": {
+                "kind": "shell",
+                "commands": ["apt install -y ripgrep fzf tmux"],
+                "dir": "~",
+                "env": { "DEBIAN_FRONTEND": "noninteractive" },
+                "on-return": {
+                    "0": "link-configs",                // reference step by id
+                    "1": {                              // inline step
+                        "name": "retry",
+                        "action": { "kind": "shell", "commands": ["echo install failed"] }
+                    },
+                    "_": "handle-error"                 // wildcard — any unmatched code
+                }
+            },
+            "children": [
+                "link-configs",                         // reference by id
+                {                                       // inline child
+                    "name": "quick cleanup",
+                    "action": { "kind": "shell", "commands": ["echo done"] }
+                }
+            ],
+            "meta": {
+                "optional": false,
+                "fallible": false,
+                "silent": ["stdout"]                    // suppress stdout; shown in --verbose
+            }
+        },
+
+        // ── Git ──
+        {
+            "id": "clone-dotfiles",
+            "name": "Clone dotfiles",
+            "action": {
+                "kind": "git",
+                "repo": "https://github.com/user/dotfiles.git",
+                "dest": "~/.dotfiles",
+                "if-exists": "pull"                     // skip (default), pull, fail
+            }
+        },
+
+        // ── FS: symlink ──
+        {
+            "id": "link-configs",
+            "name": "Symlink configs",
+            "action": {
+                "kind": "fs",
+                "action": "symlink",
+                "from": "~/.dotfiles/.bashrc",
+                "to": "~/.bashrc",
+                "if-exists": "overwrite"
+            }
+        },
+
+        // ── FS: create (multiple paths) ──
+        {
+            "id": "create-dirs",
+            "name": "Create project dirs",
+            "action": {
+                "kind": "fs",
+                "action": "create",
+                "path": ["~/projects/", "~/tmp/", "~/.config/devsetup/"],   // trailing / = folder
+                "recurse": true,
+                "if-exists": "skip"
+            }
+        },
+
+        // ── FS: create (single file) ──
+        {
+            "id": "create-config",
+            "name": "Create empty config",
+            "action": {
+                "kind": "fs",
+                "action": "create",
+                "path": "~/.config/devsetup/config.json",                   // no trailing / = file
+                "recurse": true,
+                "if-exists": "skip"
+            }
+        },
+
+        // ── FS: copy ──
+        {
+            "id": "copy-template",
+            "name": "Copy template config",
+            "action": {
+                "kind": "fs",
+                "action": "copy",
+                "from": "~/.dotfiles/template.conf",
+                "to": "~/.config/devsetup/config.conf",
+                "if-exists": { "execute": "handle-overwrite" },             // execute a step on conflict
+                "if-not-exists": "panic"                                    // source missing → fail
+            }
+        },
+
+        // ── FS: move ──
+        {
+            "id": "move-old-config",
+            "name": "Move old config to backup",
+            "action": {
+                "kind": "fs",
+                "action": "move",
+                "from": "~/.old-config",
+                "to": "~/.old-config.bak",
+                "if-not-exists": "skip"                                     // source missing → skip
+            }
+        },
+
+        // ── FS: delete ──
+        {
+            "id": "delete-cache",
+            "name": "Delete build cache",
+            "action": {
+                "kind": "fs",
+                "action": "delete",
+                "path": "~/.cache/devsetup",
+                "recurse": true,
+                "if-not-exists": "skip"
+            }
+        },
+
+        // ── Optional steps (only run when referenced) ──
+        {
+            "id": "handle-error",
+            "name": "Error handler",
+            "action": { "kind": "shell", "commands": ["echo 'Something went wrong'"] },
+            "meta": { "optional": true }
+        },
+        {
+            "id": "handle-overwrite",
+            "name": "Handle config overwrite",
+            "action": { "kind": "shell", "commands": ["echo 'Config exists, backing up...'"] },
+            "meta": { "optional": true, "fallible": true }
+        }
+    ]
+}
