@@ -1,4 +1,4 @@
-# Agent Instructions for devsetup
+# Agent Instructions for rig
 
 Read `CONTEXT.md` first for full project context.
 
@@ -21,6 +21,7 @@ src/
   config.rs       — Config/Step/Action types + parse_config() + step index + validation
   executor.rs     — Runner with execute dispatch, dry-run audit, retry tracking
   path.rs         — tilde expansion helper
+  style.rs        — aml wrapper for colored output
 ```
 
 ## Data Model

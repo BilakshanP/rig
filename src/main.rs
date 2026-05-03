@@ -1,13 +1,14 @@
 mod config;
 mod executor;
 mod path;
+mod style;
 
 use clap::Parser;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 #[derive(Parser)]
-#[command(name = "devsetup", about = "Bootstrap dev environments from a JSON config")]
+#[command(name = "rig", about = "Bootstrap dev environments from a JSON config")]
 struct Cli {
     /// Path to the JSON config file
     config: PathBuf,
@@ -30,13 +31,13 @@ fn main() -> ExitCode {
     let cfg = match config::parse_config(cli.config.to_str().unwrap_or_default()) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("error: {e}");
+            eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
             return ExitCode::FAILURE;
         }
     };
 
     if cli.validate {
-        println!("✓ config valid: {} ({} steps)", cfg.name, cfg.steps.len());
+        println!("{}", style::render(&format!("<fg>✓</f> config valid: <mb>{}</m> ({} steps)", cfg.name, cfg.steps.len())));
         return ExitCode::SUCCESS;
     }
 
@@ -48,12 +49,12 @@ fn main() -> ExitCode {
     );
 
     if cli.dry_run {
-        println!("[dry-run] {}", cfg.name);
+        println!("{}", style::render(&format!("<fc>[dry-run]</f> <mb>{}</m>", cfg.name)));
         if let Some(id) = &cli.only {
             match runner.index.get(id) {
                 Some(step) => runner.dry_run_audit(std::slice::from_ref(step)),
                 None => {
-                    eprintln!("error: no step with id '{id}'");
+                    eprintln!("{}", style::render(&format!("<fr>error:</f> no step with id '<fc>{id}</f>'")));
                     return ExitCode::FAILURE;
                 }
             }
@@ -63,26 +64,26 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    println!("Running: {}", cfg.name);
+    println!("{}", style::render(&format!("<fg>Running:</f> <mb>{}</m>", cfg.name)));
 
     if let Some(id) = &cli.only {
         match runner.index.get(id) {
             Some(step) => {
                 if let Err(e) = runner.run_step(step, 0) {
-                    eprintln!("error in step '{id}': {e}");
+                    eprintln!("{}", style::render(&format!("<fr>error in step '{id}':</f> {e}")));
                     return ExitCode::FAILURE;
                 }
             }
             None => {
-                eprintln!("error: no step with id '{id}'");
+                eprintln!("{}", style::render(&format!("<fr>error:</f> no step with id '<fc>{id}</f>'")));
                 return ExitCode::FAILURE;
             }
         }
     } else if let Err(e) = runner.run_steps(&cfg.steps) {
-        eprintln!("error: {e}");
+        eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
         return ExitCode::FAILURE;
     }
 
-    println!("Done.");
+    println!("{}", style::render("<fg>Done.</f>"));
     ExitCode::SUCCESS
 }

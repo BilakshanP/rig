@@ -1,8 +1,8 @@
-# devsetup — Project Context
+# rig — Project Context
 
 ## What is this?
 
-A Rust CLI tool that reads a JSON/JSONC config and executes setup steps to bootstrap dev environments. Declarative, with dry-run support.
+A Rust CLI tool called `rig` that reads a JSON/JSONC config and executes setup steps to bootstrap dev environments. Declarative, with dry-run support and colored output.
 
 ## Action Kinds
 
@@ -57,6 +57,7 @@ Actions are nested objects with a `kind` discriminator. Steps can have an `id` f
 - **`max-retries` (top-level)** — global default for all steps. Steps without per-step or global max-retries cannot be re-entered (cycles caught at runtime).
 - **Tilde expansion** — `~` expands to `$HOME` in all path fields.
 - **JSONC support** — `//` and `/* */` comments via `json_comments` crate.
+- **Colored output** — via `aml` crate (green success, yellow warnings, red errors, cyan IDs, dim labels).
 - **Validation** — duplicate IDs and unknown step references caught at parse time.
 
 ## FS Actions
@@ -74,11 +75,11 @@ Actions are nested objects with a `kind` discriminator. Steps can have an `id` f
 ## CLI
 
 ```
-devsetup <config-file>                # Run
-devsetup <config-file> --dry-run      # Full audit: shows all steps, meta, conditions, children
-devsetup <config-file> --verbose      # Show suppressed output
-devsetup <config-file> --only <id>    # Run a single step by ID
-devsetup <config-file> --validate     # Parse and validate without executing
+rig <config-file>                # Run
+rig <config-file> --dry-run      # Full audit: shows all steps, meta, conditions, children
+rig <config-file> --verbose      # Show suppressed output
+rig <config-file> --only <id>    # Run a single step by ID
+rig <config-file> --validate     # Parse and validate without executing
 ```
 
 ## Dry-Run Audit
@@ -97,5 +98,5 @@ devsetup <config-file> --validate     # Parse and validate without executing
 
 ## Tech Stack
 
-- Rust, serde + serde_json, clap (derive), json_comments
+- Rust, serde + serde_json, clap (derive), json_comments, aml
 - Single binary, no runtime deps

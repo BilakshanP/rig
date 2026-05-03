@@ -1,5 +1,6 @@
 use crate::config::*;
 use crate::path::expand_tilde;
+use crate::style;
 use std::collections::HashMap;
 use std::fmt;
 use std::process::Command;
@@ -70,15 +71,15 @@ impl Runner {
                 && let Some(delay) = step.meta.retry_delay
             {
                 if !self.dry_run {
-                    println!("{indent}  ⏳ retrying in {delay}s...");
+                    println!("{indent}  {}", style::render(&format!("<fy>⏳ retrying in {delay}s...</f>")));
                     std::thread::sleep(std::time::Duration::from_secs_f64(delay));
                 } else {
-                    println!("{indent}  [dry-run] would sleep {delay}s before retry");
+                    println!("{indent}  {}", style::render(&format!("<md>[dry-run]</m> would sleep {delay}s before retry")));
                 }
             }
         }
 
-        println!("{indent}→ {}", step.name);
+        println!("{indent}{}", style::render(&format!("<fg>→</f> <mb>{}</m>", step.name)));
 
         let result = match &step.action {
             Action::Shell { commands, dir, env, on_return } => {
@@ -95,7 +96,7 @@ impl Runner {
         match result {
             Ok(()) => {}
             Err(e) if step.meta.fallible => {
-                println!("{indent}  ⚠ failed (fallible): {e}");
+                println!("{indent}  {}", style::render(&format!("<fy>⚠ failed (fallible):</f> {e}")));
                 return Ok(()); // don't run children
             }
             Err(e) => return Err(e),
@@ -205,7 +206,7 @@ impl Runner {
         }
 
         match if_exists {
-            GitIfExists::Skip => println!("{indent}  skipped (exists): {}", dest_path.display()),
+            GitIfExists::Skip => println!("{indent}  {}", style::render(&format!("<fy>skipped (exists):</f> {}", dest_path.display()))),
             GitIfExists::Pull => {
                 let output = Command::new("git")
                     .args(["-C", &dest_path.to_string_lossy(), "pull"])
@@ -268,7 +269,7 @@ impl Runner {
                 if recurse && let Some(parent) = full.parent() { std::fs::create_dir_all(parent)?; }
                 std::fs::File::create(&full)?;
             }
-            println!("{indent}  created: {}", full.display());
+            println!("{indent}  {}", style::render(&format!("<fg>created:</f> {}", full.display())));
         }
         Ok(())
     }
@@ -292,7 +293,7 @@ impl Runner {
             }
         }
         std::os::unix::fs::symlink(&src, &dst)?;
-        println!("{indent}  symlinked {} → {}", src.display(), dst.display());
+        println!("{indent}  {}", style::render(&format!("<fg>symlinked</f> {} → {}", src.display(), dst.display())));
         Ok(())
     }
 
@@ -318,7 +319,7 @@ impl Runner {
             }
         }
         std::fs::copy(&src, &dst)?;
-        println!("{indent}  copied {} → {}", src.display(), dst.display());
+        println!("{indent}  {}", style::render(&format!("<fg>copied</f> {} → {}", src.display(), dst.display())));
         Ok(())
     }
 
@@ -344,7 +345,7 @@ impl Runner {
             }
         }
         std::fs::rename(&src, &dst)?;
-        println!("{indent}  moved {} → {}", src.display(), dst.display());
+        println!("{indent}  {}", style::render(&format!("<fg>moved</f> {} → {}", src.display(), dst.display())));
         Ok(())
     }
 
@@ -368,7 +369,7 @@ impl Runner {
             } else {
                 std::fs::remove_file(&full)?;
             }
-            println!("{indent}  deleted: {}", full.display());
+            println!("{indent}  {}", style::render(&format!("<fg>deleted:</f> {}", full.display())));
         }
         Ok(())
     }
@@ -404,79 +405,85 @@ impl Runner {
     pub fn dry_run_audit(&self, steps: &[Step]) {
         let optional_count = steps.iter().filter(|s| s.meta.optional).count();
         let fallible_count = steps.iter().filter(|s| s.meta.fallible).count();
-        println!("[dry-run] ({} steps, {} optional, {} fallible)\n", steps.len(), optional_count, fallible_count);
+        println!("{}", style::render(&format!(
+            "<md>({} steps, {} optional, {} fallible)</m>\n",
+            steps.len(), optional_count, fallible_count
+        )));
         for step in steps {
             self.audit_step(step, 0);
         }
-        println!("Summary: {} steps ({} optional, {} fallible)", steps.len(), optional_count, fallible_count);
+        println!("{}", style::render(&format!(
+            "<mb>Summary:</m> {} steps ({} optional, {} fallible)",
+            steps.len(), optional_count, fallible_count
+        )));
     }
 
     fn audit_step(&self, step: &Step, depth: usize) {
         let indent = "  ".repeat(depth);
         // Header: → Name (id: xxx) [flags...]
-        let mut header = format!("{indent}→ {}", step.name);
-        if let Some(id) = &step.id { header.push_str(&format!(" (id: {id})")); }
+        let mut header = format!("{indent}<fg>→</f> <mb>{}</m>", step.name);
+        if let Some(id) = &step.id { header.push_str(&format!(" <md>(id: <fc>{id}</f>)</m>")); }
         let mut flags = Vec::new();
-        if step.meta.optional { flags.push("optional".to_string()); }
-        if step.meta.fallible { flags.push("fallible".to_string()); }
+        if step.meta.optional { flags.push("<fy>optional</f>".to_string()); }
+        if step.meta.fallible { flags.push("<fy>fallible</f>".to_string()); }
         if !step.meta.silent.is_empty() {
             let s: Vec<_> = step.meta.silent.iter().map(|s| format!("{s:?}").to_lowercase()).collect();
-            flags.push(format!("silent: {}", s.join(", ")));
+            flags.push(format!("<fy>silent: {}</f>", s.join(", ")));
         }
-        if let Some(r) = step.meta.max_retries { flags.push(format!("max-retries: {r}")); }
-        if let Some(d) = step.meta.retry_delay { flags.push(format!("retry-delay: {d}s")); }
+        if let Some(r) = step.meta.max_retries { flags.push(format!("<fy>max-retries: {r}</f>")); }
+        if let Some(d) = step.meta.retry_delay { flags.push(format!("<fy>retry-delay: {d}s</f>")); }
         for f in &flags { header.push_str(&format!(" [{f}]")); }
-        println!("{header}");
+        println!("{}", style::render(&header));
 
         // Action details
         let ai = format!("{indent}    ");
         match &step.action {
             Action::Shell { commands, dir, env, on_return } => {
-                for cmd in commands { println!("{ai}sh -c {cmd:?}"); }
-                if let Some(d) = dir { println!("{ai}dir: {d}"); }
+                for cmd in commands { println!("{ai}{}", style::render(&format!("<md>sh -c</m> {cmd:?}"))); }
+                if let Some(d) = dir { println!("{ai}{}", style::render(&format!("<md>dir:</m> {d}"))); }
                 if let Some(e) = env {
-                    for (k, v) in e { println!("{ai}env: {k}={v}"); }
+                    for (k, v) in e { println!("{ai}{}", style::render(&format!("<md>env:</m> {k}={v}"))); }
                 }
                 if let Some(map) = on_return {
-                    println!("{ai}on-return:");
+                    println!("{ai}{}", style::render("<md>on-return:</m>"));
                     for (code, sr) in map {
                         let target = step_ref_label(sr);
-                        println!("{ai}  {code} → {target}");
+                        println!("{ai}  {}", style::render(&format!("{code} → <fc>{target}</f>")));
                     }
                 }
             }
             Action::Git { repo, dest, if_exists } => {
-                println!("{ai}git clone {repo} → {dest}");
-                println!("{ai}if-exists: {if_exists:?}");
+                println!("{ai}{}", style::render(&format!("<md>git clone</m> {repo} → {dest}")));
+                println!("{ai}{}", style::render(&format!("<md>if-exists:</m> {if_exists:?}")));
             }
             Action::Fs { action, recurse, target, if_exists, if_not_exists } => {
                 match (action, target) {
                     (FsAction::Create, FsTarget::Path { path }) => {
                         for p in path_list(path) {
                             let kind = if p.ends_with('/') { "dir" } else { "file" };
-                            println!("{ai}create {kind}: {p}");
+                            println!("{ai}{}", style::render(&format!("<md>create {kind}:</m> {p}")));
                         }
                     }
                     (FsAction::Delete, FsTarget::Path { path }) => {
-                        for p in path_list(path) { println!("{ai}delete: {p}"); }
+                        for p in path_list(path) { println!("{ai}{}", style::render(&format!("<md>delete:</m> {p}"))); }
                     }
                     (act, FsTarget::FromTo { from, to }) => {
-                        println!("{ai}{act:?} {from} → {to}");
+                        println!("{ai}{}", style::render(&format!("<md>{act:?}</m> {from} → {to}")));
                     }
                     _ => println!("{ai}{action:?}"),
                 }
-                if *recurse { println!("{ai}recurse: true"); }
-                if let Some(c) = if_exists { println!("{ai}if-exists: {}", condition_label(c)); }
-                if let Some(c) = if_not_exists { println!("{ai}if-not-exists: {}", condition_label(c)); }
+                if *recurse { println!("{ai}{}", style::render("<md>recurse:</m> true")); }
+                if let Some(c) = if_exists { println!("{ai}{}", style::render(&format!("<md>if-exists:</m> {}", condition_label(c)))); }
+                if let Some(c) = if_not_exists { println!("{ai}{}", style::render(&format!("<md>if-not-exists:</m> {}", condition_label(c)))); }
             }
         }
 
         // Children
         if !step.children.is_empty() {
-            println!("{ai}children:");
+            println!("{ai}{}", style::render("<md>children:</m>"));
             for child in &step.children {
                 match child {
-                    ChildRef::Id(id) => println!("{ai}  → {id}"),
+                    ChildRef::Id(id) => println!("{ai}  {}", style::render(&format!("→ <fc>{id}</f>"))),
                     ChildRef::Inline(s) => self.audit_step(s, depth + 1),
                 }
             }

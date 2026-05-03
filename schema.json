@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "devsetup config",
-  "description": "Configuration file for devsetup — a declarative dev environment bootstrapper",
+  "title": "rig config",
+  "description": "Configuration file for rig — a declarative dev environment bootstrapper",
   "type": "object",
   "required": ["name", "version", "steps"],
   "properties": {
