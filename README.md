@@ -159,6 +159,29 @@ A JSON Schema (`schema.json`) is included for editor autocompletion and validati
 { "$schema": "./schema.json" }
 ```
 
+## Variables
+
+Use `--set key=value` to inject variables into configs. Variables use `{{key}}` syntax and are substituted before parsing:
+
+```jsonc
+{
+  "name": "setup-{{project}}",
+  "steps": [{
+    "name": "Create project",
+    "action": {
+      "kind": "shell",
+      "commands": ["mkdir -p ~/projects/{{project}}"]
+    }
+  }]
+}
+```
+
+```bash
+rig setup.json --set project=my-app --set env=prod
+```
+
+Undefined variables fail immediately at startup. Use `\{\{` to escape literal double braces.
+
 ## Examples
 
 See [`examples/`](examples/) for sample configs.

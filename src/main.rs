@@ -4,6 +4,7 @@ mod path;
 mod style;
 
 use clap::Parser;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -24,11 +25,20 @@ struct Cli {
     /// Parse and validate config without executing
     #[arg(long)]
     validate: bool,
+    /// Set a variable: --set key=value (repeatable, used as {{key}} in config)
+    #[arg(long = "set", value_name = "KEY=VALUE")]
+    vars: Vec<String>,
 }
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    let cfg = match config::parse_config(cli.config.to_str().unwrap_or_default()) {
+
+    let vars: HashMap<String, String> = cli.vars.iter().filter_map(|s| {
+        let (k, v) = s.split_once('=')?;
+        Some((k.to_string(), v.to_string()))
+    }).collect();
+
+    let cfg = match config::parse_config(cli.config.to_str().unwrap_or_default(), &vars) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));

@@ -175,6 +175,7 @@ pub enum ConfigError {
     Parse(serde_json::Error),
     DuplicateId(String),
     UnknownRef(String),
+    UndefinedVar(String),
 }
 
 impl fmt::Display for ConfigError {
@@ -184,6 +185,7 @@ impl fmt::Display for ConfigError {
             Self::Parse(e) => write!(f, "failed to parse config: {e}"),
             Self::DuplicateId(id) => write!(f, "duplicate step id: {id}"),
             Self::UnknownRef(id) => write!(f, "unknown step reference: {id}"),
+            Self::UndefinedVar(name) => write!(f, "undefined variable: {{{{{name}}}}}"),
         }
     }
 }
@@ -198,10 +200,30 @@ impl From<serde_json::Error> for ConfigError {
 
 // ── Parser ──
 
-pub fn parse_config(path: &str) -> Result<Config, ConfigError> {
+pub fn parse_config(path: &str, vars: &HashMap<String, String>) -> Result<Config, ConfigError> {
     let content = std::fs::read_to_string(path)?;
-    let stripped = json_comments::StripComments::new(content.as_bytes());
-    let config: Config = serde_json::from_reader(stripped)?;
+    let mut buf = Vec::new();
+    io::Read::read_to_end(&mut json_comments::StripComments::new(content.as_bytes()), &mut buf)?;
+    let mut json = String::from_utf8_lossy(&buf).into_owned();
+
+    // Escape \{\{ before substitution
+    json = json.replace("\\{\\{", "\x00LBRACE\x00");
+
+    for (key, val) in vars {
+        json = json.replace(&format!("{{{{{key}}}}}"), val);
+    }
+
+    if let Some(pos) = json.find("{{")
+        && let Some(end) = json[pos + 2..].find("}}")
+    {
+        let var_name = &json[pos + 2..pos + 2 + end];
+        return Err(ConfigError::UndefinedVar(var_name.to_string()));
+    }
+
+    // Restore escaped braces
+    json = json.replace("\x00LBRACE\x00", "{{");
+
+    let config: Config = serde_json::from_str(&json)?;
     validate_unique_ids(&config)?;
     validate_refs(&config)?;
     Ok(config)
@@ -555,7 +577,7 @@ mod tests {
         let dir = std::env::temp_dir();
         let path = dir.join("devsetup_dup_test.json");
         std::fs::write(&path, json).unwrap();
-        assert!(matches!(parse_config(path.to_str().unwrap()), Err(ConfigError::DuplicateId(_))));
+        assert!(matches!(parse_config(path.to_str().unwrap(), &HashMap::new()), Err(ConfigError::DuplicateId(_))));
         std::fs::remove_file(path).ok();
     }
 
@@ -572,7 +594,7 @@ mod tests {
         let dir = std::env::temp_dir();
         let path = dir.join("devsetup_unknownref_test.json");
         std::fs::write(&path, json).unwrap();
-        assert!(matches!(parse_config(path.to_str().unwrap()), Err(ConfigError::UnknownRef(_))));
+        assert!(matches!(parse_config(path.to_str().unwrap(), &HashMap::new()), Err(ConfigError::UnknownRef(_))));
         std::fs::remove_file(path).ok();
     }
 
@@ -588,7 +610,7 @@ mod tests {
         let dir = std::env::temp_dir();
         let path = dir.join("devsetup_unknownor_test.json");
         std::fs::write(&path, json).unwrap();
-        assert!(matches!(parse_config(path.to_str().unwrap()), Err(ConfigError::UnknownRef(_))));
+        assert!(matches!(parse_config(path.to_str().unwrap(), &HashMap::new()), Err(ConfigError::UnknownRef(_))));
         std::fs::remove_file(path).ok();
     }
 
@@ -604,7 +626,7 @@ mod tests {
         let dir = std::env::temp_dir();
         let path = dir.join("devsetup_validref_test.json");
         std::fs::write(&path, json).unwrap();
-        assert!(parse_config(path.to_str().unwrap()).is_ok());
+        assert!(parse_config(path.to_str().unwrap(), &HashMap::new()).is_ok());
         std::fs::remove_file(path).ok();
     }
 
@@ -620,7 +642,7 @@ mod tests {
         let dir = std::env::temp_dir();
         let path = dir.join("devsetup_cycle_test.json");
         std::fs::write(&path, json).unwrap();
-        assert!(parse_config(path.to_str().unwrap()).is_ok());
+        assert!(parse_config(path.to_str().unwrap(), &HashMap::new()).is_ok());
         std::fs::remove_file(path).ok();
     }
 
@@ -637,5 +659,46 @@ mod tests {
         let idx = build_step_index(&cfg);
         assert_eq!(idx.len(), 1);
         assert_eq!(idx["a"].name, "step a");
+    }
+
+    #[test]
+    fn var_substitution() {
+        let json = r#"{
+            "name": "{{project}}", "version": "1.0.0",
+            "steps": [{
+                "name": "run",
+                "action": { "kind": "shell", "commands": ["echo {{greeting}}"] }
+            }]
+        }"#;
+        let dir = std::env::temp_dir();
+        let path = dir.join("devsetup_var_test.json");
+        std::fs::write(&path, json).unwrap();
+        let vars = HashMap::from([
+            ("project".into(), "my-app".into()),
+            ("greeting".into(), "hello".into()),
+        ]);
+        let cfg = parse_config(path.to_str().unwrap(), &vars).unwrap();
+        assert_eq!(cfg.name, "my-app");
+        match &cfg.steps[0].action {
+            Action::Shell { commands, .. } => assert_eq!(commands[0], "echo hello"),
+            _ => panic!("expected Shell"),
+        }
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn undefined_var_rejected() {
+        let json = r#"{
+            "name": "{{missing}}", "version": "1.0.0",
+            "steps": []
+        }"#;
+        let dir = std::env::temp_dir();
+        let path = dir.join("devsetup_undef_test.json");
+        std::fs::write(&path, json).unwrap();
+        assert!(matches!(
+            parse_config(path.to_str().unwrap(), &HashMap::new()),
+            Err(ConfigError::UndefinedVar(v)) if v == "missing"
+        ));
+        std::fs::remove_file(path).ok();
     }
 }
