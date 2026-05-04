@@ -1,0 +1,223 @@
+{
+    "$schema": "../schema.json",
+
+    // ── Kitchen sink: every rig feature in one config ──
+    "name": "kitchen-sink",
+    "version": "1.0.0",
+    "description": "Demonstrates every rig feature",
+    "retries": 1,                                       // global: retry failed steps once
+
+    "steps": [
+
+        // ── shell: basic command ──
+        {
+            "id": "greet",
+            "name": "Greet",
+            "action": {
+                "kind": "shell",
+                "commands": ["echo 'Hello from rig!'"]
+            }
+        },
+
+        // ── shell: dir, env, sudo, silent, retries ──
+        {
+            "id": "install-tools",
+            "name": "Install dev tools",
+            "action": {
+                "kind": "shell",
+                "commands": [
+                    "apt-get update",
+                    "apt-get install -y ripgrep fzf tmux"
+                ],
+                "dir": "~",
+                "env": { "DEBIAN_FRONTEND": "noninteractive" }
+            },
+            "meta": {
+                "sudo": true,                           // runs via sudo sh -c
+                "silent": ["stdout"],                   // suppress stdout (--verbose overrides)
+                "retries": 2,                           // override global: retry twice
+                "retry-delay": 3.0                      // wait 3s between retries
+            }
+        },
+
+        // ── on-success / on-failure ──
+        {
+            "id": "check-node",
+            "name": "Check Node.js",
+            "action": {
+                "kind": "shell",
+                "commands": ["node --version"]
+            },
+            "on-success": "setup-project",              // exit 0 → jump to setup
+            "on-failure": "install-node",               // non-zero → install it
+            "meta": { "silent": ["stdout", "stderr"] }
+        },
+
+        // ── on-return with exact code, wildcard, and array of refs ──
+        {
+            "id": "health-check",
+            "name": "Service health check",
+            "action": {
+                "kind": "shell",
+                "commands": ["curl -sf http://localhost:8080/health"]
+            },
+            "on-return": {
+                "0": "setup-project",                   // healthy → continue
+                "7": ["log-warning", "install-node"],   // connection refused → array of handlers
+                "_": "log-warning"                      // anything else → log it
+            }
+        },
+
+        // ── then: inline + ref sub-steps ──
+        {
+            "id": "setup-project",
+            "name": "Setup project",
+            "action": {
+                "kind": "shell",
+                "commands": ["echo 'Setting up project...'"]
+            },
+            "then": [
+                {                                       // inline sub-step
+                    "name": "Create workspace",
+                    "action": {
+                        "kind": "fs",
+                        "create": {
+                            "path": "/tmp/rig-demo/workspace/",
+                            "recurse": true
+                        },
+                        "if-exists": "skip"
+                    }
+                },
+                "greet"                                 // ref sub-step (runs greet again)
+            ],
+            "meta": { "optional": true }                // only runs when referenced
+        },
+
+        // ── git: clone with on-conflict ──
+        {
+            "id": "clone-dotfiles",
+            "name": "Clone dotfiles",
+            "action": {
+                "kind": "git",
+                "repo": "https://github.com/user/dotfiles.git",
+                "dest": "/tmp/rig-demo/dotfiles",
+                "on-conflict": "pull"                   // skip (default), pull, fail
+            }
+        },
+
+        // ── fs: create dirs (multiple paths) ──
+        {
+            "id": "create-dirs",
+            "name": "Create directories",
+            "action": {
+                "kind": "fs",
+                "create": {
+                    "path": [
+                        "/tmp/rig-demo/config/",
+                        "/tmp/rig-demo/cache/",
+                        "/tmp/rig-demo/logs/"
+                    ],
+                    "recurse": true
+                },
+                "if-exists": "skip"
+            }
+        },
+
+        // ── fs: create file with inline content ──
+        {
+            "id": "write-config",
+            "name": "Write default config",
+            "action": {
+                "kind": "fs",
+                "create": {
+                    "path": "/tmp/rig-demo/config/settings.json",
+                    "content": "{\n  \"theme\": \"dark\",\n  \"editor\": \"vim\"\n}",
+                    "recurse": true
+                },
+                "if-exists": "skip"
+            }
+        },
+
+        // ── fs: symlink ──
+        {
+            "id": "link-config",
+            "name": "Symlink config",
+            "action": {
+                "kind": "fs",
+                "symlink": {
+                    "from": "/tmp/rig-demo/config/settings.json",
+                    "to": "/tmp/rig-demo/settings-link.json"
+                },
+                "if-exists": "overwrite"
+            }
+        },
+
+        // ── fs: copy with execute condition ──
+        {
+            "id": "copy-template",
+            "name": "Copy template",
+            "action": {
+                "kind": "fs",
+                "copy": {
+                    "from": "/tmp/rig-demo/config/settings.json",
+                    "to": "/tmp/rig-demo/config/settings.backup.json"
+                },
+                "if-exists": { "execute": "log-warning" },  // run a step on conflict
+                "if-not-exists": "panic"                     // fail if source missing
+            }
+        },
+
+        // ── fs: move ──
+        {
+            "id": "move-backup",
+            "name": "Move backup",
+            "action": {
+                "kind": "fs",
+                "move": {
+                    "from": "/tmp/rig-demo/config/settings.backup.json",
+                    "to": "/tmp/rig-demo/cache/settings.old.json"
+                },
+                "if-not-exists": "skip"
+            }
+        },
+
+        // ── fs: delete (recurse) ──
+        {
+            "id": "cleanup",
+            "name": "Cleanup demo artifacts",
+            "action": {
+                "kind": "fs",
+                "delete": {
+                    "path": "/tmp/rig-demo",
+                    "recurse": true
+                },
+                "if-not-exists": "skip"
+            }
+        },
+
+        // ── fallible step ──
+        {
+            "id": "log-warning",
+            "name": "Log warning",
+            "action": {
+                "kind": "shell",
+                "commands": ["echo '⚠ Something unexpected happened'"]
+            },
+            "meta": {
+                "optional": true,                       // only runs when referenced
+                "fallible": true                        // failure won't halt the run
+            }
+        },
+
+        // ── optional handler ──
+        {
+            "id": "install-node",
+            "name": "Install Node.js",
+            "action": {
+                "kind": "shell",
+                "commands": ["echo 'Would install Node.js here'"]
+            },
+            "meta": { "optional": true }
+        }
+    ]
+}
