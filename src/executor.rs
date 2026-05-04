@@ -67,7 +67,7 @@ impl Runner {
     }
 
     fn preflight_sudo(&self) -> Result<(), ExecError> {
-        println!("{}", style::render("<fy>🔒 sudo required — validating credentials...</f>"));
+        println!("{}", style::render("<fy>sudo required — validating credentials...</f>"));
         let status = Command::new("sudo").arg("-v").status()?;
         if !status.success() {
             return Err(ExecError::Command("sudo authentication failed".into()));
@@ -96,7 +96,7 @@ impl Runner {
                 && let Some(delay) = step.meta.retry_delay
             {
                 if !self.dry_run {
-                    println!("{indent}  {}", style::render(&format!("<fy>⏳ retrying in {delay}s...</f>")));
+                    println!("{indent}  {}", style::render(&format!("<fy>retrying in {delay}s...</f>")));
                     std::thread::sleep(std::time::Duration::from_secs_f64(delay));
                 } else {
                     println!("{indent}  {}", style::render(&format!("<md>[dry-run]</m> would sleep {delay}s before retry")));
@@ -129,7 +129,7 @@ impl Runner {
         }
 
         if step.meta.fallible {
-            println!("{indent}  {}", style::render(&format!("<fy>⚠ failed (fallible):</f> {err}")));
+            println!("{indent}  {}", style::render(&format!("<fy>failed (fallible):</f> {err}")));
             return Ok(()); // don't run then
         }
         Err(err)
@@ -258,9 +258,9 @@ impl Runner {
         let text = if markup { style::render(message) } else { message.to_string() };
         let line = match level {
             IoLevel::Log => format!("{indent}  {text}"),
-            IoLevel::Info => format!("{indent}  {}", style::render(&format!("<fc>ℹ</f> {text}"))),
-            IoLevel::Warn => format!("{indent}  {}", style::render(&format!("<fy>⚠</f> {text}"))),
-            IoLevel::Error => format!("{indent}  {}", style::render(&format!("<fr>✗</f> {text}"))),
+            IoLevel::Info => format!("{indent}  {}", style::render(&format!("<fc>info:</f> {text}"))),
+            IoLevel::Warn => format!("{indent}  {}", style::render(&format!("<fy>warn:</f> {text}"))),
+            IoLevel::Error => format!("{indent}  {}", style::render(&format!("<fr>error:</f> {text}"))),
         };
         println!("{line}");
         // Log plain text (strip markup for log file)

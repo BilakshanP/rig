@@ -210,7 +210,7 @@
             "name": "Log warning",
             "action": {
                 "kind": "shell",
-                "commands": ["echo '⚠ Something unexpected happened'"]
+                "commands": ["echo 'Something unexpected happened'"]
             },
             "meta": {
                 "optional": true,                       // only runs when referenced
@@ -240,7 +240,7 @@
         },
         {
             "name": "Done",
-            "action": { "kind": "io", "level": "info", "message": "<fg>✓ All done!</f>", "markup": true }
+            "action": { "kind": "io", "level": "info", "message": "<fg>All done!</f>", "markup": true }
         }
     ]
 }

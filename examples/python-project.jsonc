@@ -206,7 +206,7 @@
         },
         {
             "name": "Done",
-            "action": { "kind": "io", "level": "info", "message": "<fg>✓ Project {{name}} ready!</f> cd {{name}} && uv run {{name}}", "markup": true }
+            "action": { "kind": "io", "level": "info", "message": "<fg>Project {{name}} ready!</f> cd {{name}} && uv run {{name}}", "markup": true }
         }
     ]
 }

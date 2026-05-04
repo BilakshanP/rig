@@ -47,7 +47,7 @@ fn main() -> ExitCode {
     };
 
     if cli.validate {
-        println!("{}", style::render(&format!("<fg>✓</f> config valid: <mb>{}</m> ({} steps)", cfg.name, cfg.steps.len())));
+        println!("{}", style::render(&format!("<fg>ok:</f> config valid: <mb>{}</m> ({} steps)", cfg.name, cfg.steps.len())));
         return ExitCode::SUCCESS;
     }
 

@@ -103,7 +103,7 @@ Structured logging. Messages are plain text by default; set `markup: true` to pa
 { "kind": "io", "level": "info", "message": "Starting setup..." }
 { "kind": "io", "level": "warn", "message": "Config already exists" }
 { "kind": "io", "level": "error", "message": "Missing dependency" }
-{ "kind": "io", "level": "info", "message": "<fg>✓ Done!</f>", "markup": true }
+{ "kind": "io", "level": "info", "message": "<fg>Done!</f>", "markup": true }
 ```
 
 Levels: `log`, `info`, `warn`, `error`. IO actions always succeed and never affect step execution.
