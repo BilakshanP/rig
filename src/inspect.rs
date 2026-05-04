@@ -93,7 +93,7 @@ fn describe_inner(
         Action::Fs { op, if_exists, if_not_exists } => {
             match op {
                 FsOp::Create { path, recurse, content } => {
-                    for p in path_list(path) {
+                    for p in path {
                         let kind = if p.ends_with('/') { "dir" } else { "file" };
                         println!("{ai}{}", style::render(&format!("<md>create {kind}:</m> {p}")));
                     }
@@ -104,7 +104,7 @@ fn describe_inner(
                 FsOp::Copy { from, to } => println!("{ai}{}", style::render(&format!("<md>copy</m> {from} -> {to}"))),
                 FsOp::Move { from, to } => println!("{ai}{}", style::render(&format!("<md>move</m> {from} -> {to}"))),
                 FsOp::Delete { path, recurse } => {
-                    for p in path_list(path) { println!("{ai}{}", style::render(&format!("<md>delete:</m> {p}"))); }
+                    for p in path { println!("{ai}{}", style::render(&format!("<md>delete:</m> {p}"))); }
                     if *recurse { println!("{ai}{}", style::render("<md>recurse:</m> true")); }
                 }
             }
@@ -140,30 +140,23 @@ fn describe_inner(
             println!("{ai}{}", style::render("<md>then:</m>"));
             for child in &step.then {
                 match child {
-                    ChildRef::Id(id) => {
+                    StepRef::Id(id) => {
                         if let Some(s) = index.get(id) {
                             describe_inner(s, index, depth + 1, max_depth, verbose, seen);
                         } else {
                             println!("{ai}  -> {id}");
                         }
                     }
-                    ChildRef::Inline(s) => describe_inner(s, index, depth + 1, max_depth, verbose, seen),
+                    StepRef::Inline(s) => describe_inner(s, index, depth + 1, max_depth, verbose, seen),
                 }
             }
         } else {
             let refs: Vec<_> = step.then.iter().map(|c| match c {
-                ChildRef::Id(id) => id.clone(),
-                ChildRef::Inline(s) => format!("[inline: {}]", s.name),
+                StepRef::Id(id) => id.clone(),
+                StepRef::Inline(s) => format!("[inline: {}]", s.name),
             }).collect();
             println!("{ai}{}", style::render(&format!("<md>then:</m> {}", refs.join(", "))));
         }
-    }
-}
-
-fn path_list(spec: &PathSpec) -> Vec<String> {
-    match spec {
-        PathSpec::Single(s) => vec![s.clone()],
-        PathSpec::Multiple(v) => v.clone(),
     }
 }
 
@@ -174,11 +167,8 @@ fn step_ref_label(sr: &StepRef) -> String {
     }
 }
 
-fn step_refs_label(refs: &StepRefs) -> String {
-    match refs {
-        StepRefs::Single(sr) => step_ref_label(sr),
-        StepRefs::Multiple(v) => v.iter().map(step_ref_label).collect::<Vec<_>>().join(", "),
-    }
+fn step_refs_label(refs: &[StepRef]) -> String {
+    refs.iter().map(step_ref_label).collect::<Vec<_>>().join(", ")
 }
 
 fn condition_label(c: &Condition) -> String {

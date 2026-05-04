@@ -27,27 +27,24 @@ src/
 
 ## Data Model
 
-- `Config` — `name`, `version`, optional `description`, `meta: ConfigMeta`, `steps: Vec<Step>`
-- `ConfigMeta` — `log?`, `silent: Vec<Silent>`, `sudo`, `retries?`, `retry_delay?`
-- `Step` — `id?`, `name`, `description?`, `action: Action`, `on_success?`, `on_failure?`, `on_return?`, `then: Vec<ChildRef>`, `meta: Meta`
-- `ChildRef` — `Id(String)` or `Inline(Box<Step>)`
-- `StepRefs` — `Single(StepRef)` or `Multiple(Vec<StepRef>)` (used for on-success/on-failure/on-return values)
-- `StepRef` — `Id(String)` or `Inline(Box<Step>)`
+- `Config` — `name`, `version`, optional `description`, `meta: Meta`, `steps: Vec<Step>`
+- `Meta` — `log?`, `silent: Vec<Silent>`, `sudo`, `retries?`, `retry_delay?` (top-level defaults)
+- `Step` — `id?`, `name`, `description?`, `action: Action`, `on_success?: Vec<StepRef>`, `on_failure?: Vec<StepRef>`, `on_return?: HashMap<String, Vec<StepRef>>`, `then: Vec<StepRef>`, `meta: StepMeta`
+- `StepRef` — `Id(String)` or `Inline(Box<Step>)` (unified, was StepRef + ChildRef)
 - `Action` — tagged enum on `kind`:
-  - `Shell { commands, dir?, env? }`
+  - `Shell { commands: Vec<String>, dir?, env? }` (commands accepts single string or array)
   - `Git { repo, dest, on_conflict }`
   - `Fs { op: FsOp, if_exists?, if_not_exists? }`
   - `Io { level: IoLevel, message, markup }`
 - `FsOp` — enum:
-  - `Create { path: PathSpec, recurse, content? }`
+  - `Create { path: Vec<String>, recurse, content? }` (append supported with content)
   - `Symlink { from, to }`
-  - `Copy { from, to }`
+  - `Copy { from, to }` (append supported: src appended to dst)
   - `Move { from, to }`
-  - `Delete { path: PathSpec, recurse }`
-- `PathSpec` — `Single(String)` or `Multiple(Vec<String>)`
+  - `Delete { path: Vec<String>, recurse }`
 - `Condition` — `Action(skip/overwrite/append/panic)` or `Execute { execute: StepRef }`
 - `GitOnConflict` — `Skip` (default), `Pull`, `Fail`
-- `Meta` — `optional`, `fallible`, `sudo`, `silent: Vec<Silent>`, `retries?`, `retry_delay?`
+- `StepMeta` — `optional`, `fallible`, `sudo`, `silent: Vec<Silent>`, `retries?`, `retry_delay?` (per-step overrides)
 
 ## Executor Rules
 

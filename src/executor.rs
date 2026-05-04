@@ -36,13 +36,13 @@ pub struct Runner {
     pub index: HashMap<String, Step>,
     pub dry_run: bool,
     pub verbose: bool,
-    pub config_meta: ConfigMeta,
+    pub config_meta: Meta,
     log_file: RefCell<Option<std::fs::File>>,
     entry_counts: RefCell<HashMap<String, u32>>,
 }
 
 impl Runner {
-    pub fn new(index: HashMap<String, Step>, dry_run: bool, verbose: bool, config_meta: ConfigMeta) -> Self {
+    pub fn new(index: HashMap<String, Step>, dry_run: bool, verbose: bool, config_meta: Meta) -> Self {
         let log_file = if !dry_run {
             config_meta.log.as_ref().and_then(|p| {
                 let path = crate::path::expand_tilde(p);
@@ -111,7 +111,7 @@ impl Runner {
                         self.run_step_refs(refs, depth + 1)?;
                     }
                     // Run then steps
-                    for child in &step.then { self.run_child(child, depth + 1)?; }
+                    for child in &step.then { self.run_step_ref(child, depth + 1)?; }
                     return Ok(());
                 }
                 Err(e) => { last_err = Some(e); }
@@ -124,7 +124,7 @@ impl Runner {
         if let Some(refs) = handler {
             self.run_step_refs(refs, depth + 1)?;
             // Handler caught it - run then steps
-            for child in &step.then { self.run_child(child, depth + 1)?; }
+            for child in &step.then { self.run_step_ref(child, depth + 1)?; }
             return Ok(());
         }
 
@@ -136,7 +136,7 @@ impl Runner {
     }
 
     /// Resolve which handler to run. Returns None if no handler matches.
-    fn resolve_handler<'a>(&self, step: &'a Step, code: i32, success: bool) -> Option<&'a StepRefs> {
+    fn resolve_handler<'a>(&self, step: &'a Step, code: i32, success: bool) -> Option<&'a [StepRef]> {
         // Check on-return for exact code
         if let Some(map) = &step.on_return {
             let key = code.to_string();
@@ -144,17 +144,16 @@ impl Runner {
             if let Some(refs) = map.get("_") { return Some(refs); }
         }
         // Fall back to on-success / on-failure
-        if success { step.on_success.as_ref() } else { step.on_failure.as_ref() }
-    }
-
-    fn run_child(&self, child: &ChildRef, depth: usize) -> Result<(), ExecError> {
-        match child {
-            ChildRef::Id(id) => self.run_ref(id, depth),
-            ChildRef::Inline(step) => self.run_step(step, depth),
+        if success {
+            step.on_success.as_deref()
+        } else {
+            step.on_failure.as_deref()
         }
     }
 
     fn run_ref(&self, id: &str, depth: usize) -> Result<(), ExecError> {
+        // StepNotFound is defensive: validate_refs catches missing IDs at parse time,
+        // but this guards against a StepRef being passed in that wasn't validated.
         let step = self.index.get(id).ok_or_else(|| ExecError::StepNotFound(id.into()))?;
         self.run_step(step, depth)
     }
@@ -166,15 +165,13 @@ impl Runner {
         }
     }
 
-    fn run_step_refs(&self, refs: &StepRefs, depth: usize) -> Result<(), ExecError> {
-        match refs {
-            StepRefs::Single(sr) => self.run_step_ref(sr, depth),
-            StepRefs::Multiple(v) => { for sr in v { self.run_step_ref(sr, depth)?; } Ok(()) }
-        }
+    fn run_step_refs(&self, refs: &[StepRef], depth: usize) -> Result<(), ExecError> {
+        for sr in refs { self.run_step_ref(sr, depth)?; }
+        Ok(())
     }
 
     /// Execute an action, returning the exit code (0 for non-shell actions on success).
-    fn exec_action(&self, action: &Action, meta: &Meta, indent: &str, _depth: usize) -> Result<i32, ExecError> {
+    fn exec_action(&self, action: &Action, meta: &StepMeta, indent: &str, _depth: usize) -> Result<i32, ExecError> {
         let sudo = meta.sudo || self.config_meta.sudo;
         match action {
             Action::Shell { commands, dir, env } => self.exec_shell(commands, dir.as_deref(), env.as_ref(), meta, indent, sudo),
@@ -184,7 +181,7 @@ impl Runner {
         }
     }
 
-    fn maybe_print(&self, stdout: &[u8], stderr: &[u8], meta: &Meta) {
+    fn maybe_print(&self, stdout: &[u8], stderr: &[u8], meta: &StepMeta) {
         let silent = if meta.silent.is_empty() { &self.config_meta.silent } else { &meta.silent };
         let show_out = !silent.contains(&Silent::Stdout) || self.verbose;
         let show_err = !silent.contains(&Silent::Stderr) || self.verbose;
@@ -218,7 +215,7 @@ impl Runner {
         commands: &[String],
         dir: Option<&str>,
         env: Option<&HashMap<String, String>>,
-        meta: &Meta,
+        meta: &StepMeta,
         indent: &str,
         sudo: bool,
     ) -> Result<i32, ExecError> {
@@ -276,7 +273,7 @@ impl Runner {
 
     // -- Git --
 
-    fn exec_git(&self, repo: &str, dest: &str, on_conflict: &GitOnConflict, meta: &Meta, indent: &str) -> Result<(), ExecError> {
+    fn exec_git(&self, repo: &str, dest: &str, on_conflict: &GitOnConflict, meta: &StepMeta, indent: &str) -> Result<(), ExecError> {
         let dest_path = expand_tilde(dest);
         let exists = dest_path.exists();
 
@@ -326,9 +323,9 @@ impl Runner {
         }
     }
 
-    fn fs_create(&self, path: &PathSpec, recurse: bool, content: Option<&str>, if_exists: Option<&Condition>, indent: &str) -> Result<(), ExecError> {
-        for p in path_list(path) {
-            let full = expand_tilde(&p);
+    fn fs_create(&self, path: &[String], recurse: bool, content: Option<&str>, if_exists: Option<&Condition>, indent: &str) -> Result<(), ExecError> {
+        for p in path {
+            let full = expand_tilde(p);
             let is_dir = p.ends_with('/');
             if self.dry_run {
                 let kind = if is_dir { "dir" } else { "file" };
@@ -336,10 +333,17 @@ impl Runner {
                 if let Some(c) = content { println!("{indent}    content: {c:?}"); }
                 continue;
             }
+            let mut append_mode = false;
             if full.exists() {
                 match self.handle_condition(if_exists, indent)? {
                     CondResult::Skip => continue,
                     CondResult::Proceed => {}
+                    CondResult::Append => {
+                        if is_dir {
+                            return Err(ExecError::Command(format!("cannot append to directory: {}", full.display())));
+                        }
+                        append_mode = true;
+                    }
                     CondResult::Panic => return Err(ExecError::Command(format!("already exists: {}", full.display()))),
                 }
             }
@@ -348,12 +352,19 @@ impl Runner {
             } else {
                 if recurse && let Some(parent) = full.parent() { std::fs::create_dir_all(parent)?; }
                 if let Some(c) = content {
-                    std::fs::write(&full, c)?;
-                } else {
+                    if append_mode {
+                        use std::io::Write;
+                        let mut f = std::fs::OpenOptions::new().append(true).open(&full)?;
+                        f.write_all(c.as_bytes())?;
+                    } else {
+                        std::fs::write(&full, c)?;
+                    }
+                } else if !append_mode {
                     std::fs::File::create(&full)?;
                 }
             }
-            println!("{indent}  {}", style::render(&format!("<fg>created:</f> {}", full.display())));
+            let verb = if append_mode { "appended to" } else { "created" };
+            println!("{indent}  {}", style::render(&format!("<fg>{verb}:</f> {}", full.display())));
         }
         Ok(())
     }
@@ -369,6 +380,7 @@ impl Runner {
             match self.handle_condition(if_exists, indent)? {
                 CondResult::Skip => return Ok(()),
                 CondResult::Proceed => { std::fs::remove_file(&dst).or_else(|_| std::fs::remove_dir_all(&dst))?; }
+                CondResult::Append => return Err(ExecError::Command("append not supported for symlink".into())),
                 CondResult::Panic => return Err(ExecError::Command(format!("already exists: {}", dst.display()))),
             }
         }
@@ -385,15 +397,25 @@ impl Runner {
             return Ok(());
         }
         if !src.exists() { return self.handle_not_exists(if_not_exists, &src, indent); }
+        let mut append_mode = false;
         if dst.exists() {
             match self.handle_condition(if_exists, indent)? {
                 CondResult::Skip => return Ok(()),
                 CondResult::Proceed => {}
+                CondResult::Append => { append_mode = true; }
                 CondResult::Panic => return Err(ExecError::Command(format!("already exists: {}", dst.display()))),
             }
         }
-        std::fs::copy(&src, &dst)?;
-        println!("{indent}  {}", style::render(&format!("<fg>copied</f> {} -> {}", src.display(), dst.display())));
+        if append_mode {
+            use std::io::Write;
+            let src_data = std::fs::read(&src)?;
+            let mut f = std::fs::OpenOptions::new().append(true).open(&dst)?;
+            f.write_all(&src_data)?;
+            println!("{indent}  {}", style::render(&format!("<fg>appended</f> {} -> {}", src.display(), dst.display())));
+        } else {
+            std::fs::copy(&src, &dst)?;
+            println!("{indent}  {}", style::render(&format!("<fg>copied</f> {} -> {}", src.display(), dst.display())));
+        }
         Ok(())
     }
 
@@ -409,6 +431,7 @@ impl Runner {
             match self.handle_condition(if_exists, indent)? {
                 CondResult::Skip => return Ok(()),
                 CondResult::Proceed => { std::fs::remove_file(&dst).or_else(|_| std::fs::remove_dir_all(&dst))?; }
+                CondResult::Append => return Err(ExecError::Command("append not supported for move".into())),
                 CondResult::Panic => return Err(ExecError::Command(format!("already exists: {}", dst.display()))),
             }
         }
@@ -417,9 +440,9 @@ impl Runner {
         Ok(())
     }
 
-    fn fs_delete(&self, path: &PathSpec, recurse: bool, if_not_exists: Option<&Condition>, indent: &str) -> Result<(), ExecError> {
-        for p in path_list(path) {
-            let full = expand_tilde(&p);
+    fn fs_delete(&self, path: &[String], recurse: bool, if_not_exists: Option<&Condition>, indent: &str) -> Result<(), ExecError> {
+        for p in path {
+            let full = expand_tilde(p);
             if self.dry_run {
                 println!("{indent}  [dry-run] delete: {}", full.display());
                 continue;
@@ -445,7 +468,7 @@ impl Runner {
             None | Some(Condition::Action(ConditionAction::Panic)) => Ok(CondResult::Panic),
             Some(Condition::Action(ConditionAction::Skip)) => Ok(CondResult::Skip),
             Some(Condition::Action(ConditionAction::Overwrite)) => Ok(CondResult::Proceed),
-            Some(Condition::Action(ConditionAction::Append)) => Ok(CondResult::Proceed),
+            Some(Condition::Action(ConditionAction::Append)) => Ok(CondResult::Append),
             Some(Condition::Execute { execute }) => {
                 self.run_step_ref(execute, 0)?;
                 Ok(CondResult::Skip)
@@ -531,7 +554,7 @@ impl Runner {
             Action::Fs { op, if_exists, if_not_exists } => {
                 match op {
                     FsOp::Create { path, recurse, content } => {
-                        for p in path_list(path) {
+                        for p in path {
                             let kind = if p.ends_with('/') { "dir" } else { "file" };
                             println!("{ai}{}", style::render(&format!("<md>create {kind}:</m> {p}")));
                         }
@@ -542,7 +565,7 @@ impl Runner {
                     FsOp::Copy { from, to } => println!("{ai}{}", style::render(&format!("<md>copy</m> {from} -> {to}"))),
                     FsOp::Move { from, to } => println!("{ai}{}", style::render(&format!("<md>move</m> {from} -> {to}"))),
                     FsOp::Delete { path, recurse } => {
-                        for p in path_list(path) { println!("{ai}{}", style::render(&format!("<md>delete:</m> {p}"))); }
+                        for p in path { println!("{ai}{}", style::render(&format!("<md>delete:</m> {p}"))); }
                         if *recurse { println!("{ai}{}", style::render("<md>recurse:</m> true")); }
                     }
                 }
@@ -568,8 +591,8 @@ impl Runner {
             println!("{ai}{}", style::render("<md>then:</m>"));
             for child in &step.then {
                 match child {
-                    ChildRef::Id(id) => println!("{ai}  {}", style::render(&format!("-> <fc>{id}</f>"))),
-                    ChildRef::Inline(s) => self.audit_step(s, depth + 1),
+                    StepRef::Id(id) => println!("{ai}  {}", style::render(&format!("-> <fc>{id}</f>"))),
+                    StepRef::Inline(s) => self.audit_step(s, depth + 1),
                 }
             }
         }
@@ -579,14 +602,7 @@ impl Runner {
 
 // -- Helpers --
 
-enum CondResult { Skip, Proceed, Panic }
-
-fn path_list(spec: &PathSpec) -> Vec<String> {
-    match spec {
-        PathSpec::Single(s) => vec![s.clone()],
-        PathSpec::Multiple(v) => v.clone(),
-    }
-}
+enum CondResult { Skip, Proceed, Append, Panic }
 
 fn step_ref_label(sr: &StepRef) -> String {
     match sr {
@@ -595,11 +611,8 @@ fn step_ref_label(sr: &StepRef) -> String {
     }
 }
 
-fn step_refs_label(refs: &StepRefs) -> String {
-    match refs {
-        StepRefs::Single(sr) => step_ref_label(sr),
-        StepRefs::Multiple(v) => v.iter().map(step_ref_label).collect::<Vec<_>>().join(", "),
-    }
+fn step_refs_label(refs: &[StepRef]) -> String {
+    refs.iter().map(step_ref_label).collect::<Vec<_>>().join(", ")
 }
 
 fn condition_label(c: &Condition) -> String {
@@ -615,11 +628,11 @@ mod tests {
     use std::fs;
 
     fn runner(index: HashMap<String, Step>) -> Runner {
-        Runner::new(index, false, false, ConfigMeta::default())
+        Runner::new(index, false, false, Meta::default())
     }
 
     fn dry_runner() -> Runner {
-        Runner::new(HashMap::new(), true, false, ConfigMeta::default())
+        Runner::new(HashMap::new(), true, false, Meta::default())
     }
 
     fn shell_step(commands: Vec<&str>, dir: Option<&str>) -> Step {
@@ -630,7 +643,7 @@ mod tests {
                 dir: dir.map(String::from), env: None,
             },
             on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: Meta::default(),
+            then: vec![], meta: StepMeta::default(),
         }
     }
 
@@ -671,11 +684,11 @@ mod tests {
         let step = Step {
             id: None, name: "create".into(), description: None,
             action: Action::Fs {
-                op: FsOp::Create { path: PathSpec::Single(path_str), recurse: false, content: None },
+                op: FsOp::Create { path: vec![path_str], recurse: false, content: None },
                 if_exists: None, if_not_exists: None,
             },
             on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: Meta::default(),
+            then: vec![], meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
         assert!(target.is_dir());
@@ -688,11 +701,11 @@ mod tests {
         let step = Step {
             id: None, name: "create".into(), description: None,
             action: Action::Fs {
-                op: FsOp::Create { path: PathSpec::Single(target.to_string_lossy().into()), recurse: false, content: None },
+                op: FsOp::Create { path: vec![target.to_string_lossy().into()], recurse: false, content: None },
                 if_exists: None, if_not_exists: None,
             },
             on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: Meta::default(),
+            then: vec![], meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
         assert!(target.is_file());
@@ -705,14 +718,52 @@ mod tests {
         let step = Step {
             id: None, name: "create".into(), description: None,
             action: Action::Fs {
-                op: FsOp::Create { path: PathSpec::Single(target.to_string_lossy().into()), recurse: false, content: Some("hello world".into()) },
+                op: FsOp::Create { path: vec![target.to_string_lossy().into()], recurse: false, content: Some("hello world".into()) },
                 if_exists: None, if_not_exists: None,
             },
             on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: Meta::default(),
+            then: vec![], meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
         assert_eq!(fs::read_to_string(&target).unwrap(), "hello world");
+    }
+
+    #[test]
+    fn fs_create_append() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("log.txt");
+        fs::write(&target, "existing\n").unwrap();
+        let step = Step {
+            id: None, name: "append".into(), description: None,
+            action: Action::Fs {
+                op: FsOp::Create { path: vec![target.to_string_lossy().into()], recurse: false, content: Some("new line\n".into()) },
+                if_exists: Some(Condition::Action(ConditionAction::Append)), if_not_exists: None,
+            },
+            on_success: None, on_failure: None, on_return: None,
+            then: vec![], meta: StepMeta::default(),
+        };
+        runner(HashMap::new()).run_step(&step, 0).unwrap();
+        assert_eq!(fs::read_to_string(&target).unwrap(), "existing\nnew line\n");
+    }
+
+    #[test]
+    fn fs_copy_append() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src.txt");
+        let dst = dir.path().join("dst.txt");
+        fs::write(&src, "from src\n").unwrap();
+        fs::write(&dst, "original\n").unwrap();
+        let step = Step {
+            id: None, name: "append".into(), description: None,
+            action: Action::Fs {
+                op: FsOp::Copy { from: src.to_string_lossy().into(), to: dst.to_string_lossy().into() },
+                if_exists: Some(Condition::Action(ConditionAction::Append)), if_not_exists: None,
+            },
+            on_success: None, on_failure: None, on_return: None,
+            then: vec![], meta: StepMeta::default(),
+        };
+        runner(HashMap::new()).run_step(&step, 0).unwrap();
+        assert_eq!(fs::read_to_string(&dst).unwrap(), "original\nfrom src\n");
     }
 
     #[test]
@@ -728,7 +779,7 @@ mod tests {
                 if_exists: None, if_not_exists: None,
             },
             on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: Meta::default(),
+            then: vec![], meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
         assert!(dst.is_symlink());
@@ -748,7 +799,7 @@ mod tests {
                 if_exists: None, if_not_exists: Some(Condition::Action(ConditionAction::Panic)),
             },
             on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: Meta::default(),
+            then: vec![], meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
         assert_eq!(fs::read_to_string(&dst).unwrap(), "data");
@@ -767,7 +818,7 @@ mod tests {
                 if_exists: None, if_not_exists: None,
             },
             on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: Meta::default(),
+            then: vec![], meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
         assert!(!src.exists());
@@ -782,11 +833,11 @@ mod tests {
         let step = Step {
             id: None, name: "del".into(), description: None,
             action: Action::Fs {
-                op: FsOp::Delete { path: PathSpec::Single(f.to_string_lossy().into()), recurse: false },
+                op: FsOp::Delete { path: vec![f.to_string_lossy().into()], recurse: false },
                 if_exists: None, if_not_exists: None,
             },
             on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: Meta::default(),
+            then: vec![], meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
         assert!(!f.exists());
@@ -797,11 +848,11 @@ mod tests {
         let step = Step {
             id: None, name: "del".into(), description: None,
             action: Action::Fs {
-                op: FsOp::Delete { path: PathSpec::Single("/tmp/nonexistent_rig_test".into()), recurse: false },
+                op: FsOp::Delete { path: vec!["/tmp/nonexistent_rig_test".into()], recurse: false },
                 if_exists: None, if_not_exists: Some(Condition::Action(ConditionAction::Skip)),
             },
             on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: Meta::default(),
+            then: vec![], meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
     }
@@ -814,9 +865,9 @@ mod tests {
             action: Action::Shell { commands: vec!["echo parent".into()], dir: None, env: None },
             on_success: None, on_failure: None, on_return: None,
             then: vec![
-                ChildRef::Inline(Box::new(shell_step(vec!["echo child > child.txt"], Some(dir.path().to_str().unwrap())))),
+                StepRef::Inline(Box::new(shell_step(vec!["echo child > child.txt"], Some(dir.path().to_str().unwrap())))),
             ],
-            meta: Meta::default(),
+            meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
         assert!(dir.path().join("child.txt").exists());
@@ -830,9 +881,9 @@ mod tests {
             action: Action::Shell { commands: vec!["false".into()], dir: None, env: None },
             on_success: None, on_failure: None, on_return: None,
             then: vec![
-                ChildRef::Inline(Box::new(shell_step(vec!["echo child > child.txt"], Some(dir.path().to_str().unwrap())))),
+                StepRef::Inline(Box::new(shell_step(vec!["echo child > child.txt"], Some(dir.path().to_str().unwrap())))),
             ],
-            meta: Meta { fallible: true, ..Meta::default() },
+            meta: StepMeta { fallible: true, ..StepMeta::default() },
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
         assert!(!dir.path().join("child.txt").exists());
@@ -844,7 +895,7 @@ mod tests {
             id: None, name: "opt".into(), description: None,
             action: Action::Shell { commands: vec!["false".into()], dir: None, env: None },
             on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: Meta { optional: true, ..Meta::default() },
+            then: vec![], meta: StepMeta { optional: true, ..StepMeta::default() },
         }];
         runner(HashMap::new()).run_steps(&steps).unwrap();
     }
@@ -859,7 +910,7 @@ mod tests {
                 dir: None, env: None,
             },
             on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: Meta { optional: true, ..Meta::default() },
+            then: vec![], meta: StepMeta { optional: true, ..StepMeta::default() },
         };
         let mut index = HashMap::new();
         index.insert("handler".into(), handler);
@@ -867,9 +918,9 @@ mod tests {
         let step = Step {
             id: None, name: "test".into(), description: None,
             action: Action::Shell { commands: vec!["true".into()], dir: None, env: None },
-            on_success: Some(StepRefs::Single(StepRef::Id("handler".into()))),
+            on_success: Some(vec![StepRef::Id("handler".into())]),
             on_failure: None, on_return: None,
-            then: vec![], meta: Meta::default(),
+            then: vec![], meta: StepMeta::default(),
         };
         runner(index).run_step(&step, 0).unwrap();
         assert!(dir.path().join("handled.txt").exists());
@@ -885,7 +936,7 @@ mod tests {
                 dir: None, env: None,
             },
             on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: Meta { optional: true, ..Meta::default() },
+            then: vec![], meta: StepMeta { optional: true, ..StepMeta::default() },
         };
         let mut index = HashMap::new();
         index.insert("handler".into(), handler);
@@ -894,9 +945,9 @@ mod tests {
             id: None, name: "test".into(), description: None,
             action: Action::Shell { commands: vec!["false".into()], dir: None, env: None },
             on_success: None,
-            on_failure: Some(StepRefs::Single(StepRef::Id("handler".into()))),
+            on_failure: Some(vec![StepRef::Id("handler".into())]),
             on_return: None,
-            then: vec![], meta: Meta::default(),
+            then: vec![], meta: StepMeta::default(),
         };
         runner(index).run_step(&step, 0).unwrap();
         assert!(dir.path().join("handled.txt").exists());
@@ -912,7 +963,7 @@ mod tests {
                 dir: None, env: None,
             },
             on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: Meta { optional: true, ..Meta::default() },
+            then: vec![], meta: StepMeta { optional: true, ..StepMeta::default() },
         };
         let generic = Step {
             id: Some("generic".into()), name: "generic".into(), description: None,
@@ -921,7 +972,7 @@ mod tests {
                 dir: None, env: None,
             },
             on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: Meta { optional: true, ..Meta::default() },
+            then: vec![], meta: StepMeta { optional: true, ..StepMeta::default() },
         };
         let mut index = HashMap::new();
         index.insert("special".into(), special);
@@ -930,10 +981,10 @@ mod tests {
         let step = Step {
             id: None, name: "test".into(), description: None,
             action: Action::Shell { commands: vec!["true".into()], dir: None, env: None },
-            on_success: Some(StepRefs::Single(StepRef::Id("generic".into()))),
+            on_success: Some(vec![StepRef::Id("generic".into())]),
             on_failure: None,
-            on_return: Some(HashMap::from([("0".into(), StepRefs::Single(StepRef::Id("special".into())))])),
-            then: vec![], meta: Meta::default(),
+            on_return: Some(HashMap::from([("0".into(), vec![StepRef::Id("special".into())])])),
+            then: vec![], meta: StepMeta::default(),
         };
         runner(index).run_step(&step, 0).unwrap();
         assert!(dir.path().join("special.txt").exists());
@@ -950,7 +1001,7 @@ mod tests {
                 dir: None, env: None,
             },
             on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: Meta { optional: true, ..Meta::default() },
+            then: vec![], meta: StepMeta { optional: true, ..StepMeta::default() },
         };
         let mut index = HashMap::new();
         index.insert("catch".into(), handler);
@@ -959,9 +1010,9 @@ mod tests {
             id: None, name: "test".into(), description: None,
             action: Action::Shell { commands: vec!["exit 42".into()], dir: None, env: None },
             on_success: None,
-            on_failure: Some(StepRefs::Single(StepRef::Id("catch".into()))),
-            on_return: Some(HashMap::from([("_".into(), StepRefs::Single(StepRef::Id("catch".into())))])),
-            then: vec![], meta: Meta::default(),
+            on_failure: Some(vec![StepRef::Id("catch".into())]),
+            on_return: Some(HashMap::from([("_".into(), vec![StepRef::Id("catch".into())])])),
+            then: vec![], meta: StepMeta::default(),
         };
         runner(index).run_step(&step, 0).unwrap();
         assert!(dir.path().join("caught.txt").exists());
@@ -977,7 +1028,7 @@ mod tests {
                 dir: None, env: None,
             },
             on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: Meta { optional: true, ..Meta::default() },
+            then: vec![], meta: StepMeta { optional: true, ..StepMeta::default() },
         };
         let mut index = HashMap::new();
         index.insert("handler".into(), handler);
@@ -985,12 +1036,12 @@ mod tests {
         let step = Step {
             id: None, name: "test".into(), description: None,
             action: Action::Shell { commands: vec!["true".into()], dir: None, env: None },
-            on_success: Some(StepRefs::Single(StepRef::Id("handler".into()))),
+            on_success: Some(vec![StepRef::Id("handler".into())]),
             on_failure: None, on_return: None,
             then: vec![
-                ChildRef::Inline(Box::new(shell_step(vec!["echo child > child.txt"], Some(dir.path().to_str().unwrap())))),
+                StepRef::Inline(Box::new(shell_step(vec!["echo child > child.txt"], Some(dir.path().to_str().unwrap())))),
             ],
-            meta: Meta::default(),
+            meta: StepMeta::default(),
         };
         runner(index).run_step(&step, 0).unwrap();
         assert!(dir.path().join("handled.txt").exists());
@@ -1008,7 +1059,7 @@ mod tests {
                 dir: None, env: None,
             },
             on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: Meta { retries: Some(2), ..Meta::default() },
+            then: vec![], meta: StepMeta { retries: Some(2), ..StepMeta::default() },
         };
         let result = runner(HashMap::new()).run_step(&step, 0);
         assert!(result.is_err());
@@ -1022,12 +1073,12 @@ mod tests {
             id: Some("a".into()), name: "a".into(), description: None,
             action: Action::Shell { commands: vec!["true".into()], dir: None, env: None },
             on_success: None, on_failure: None, on_return: None,
-            then: vec![ChildRef::Id("a".into())],
-            meta: Meta::default(),
+            then: vec![StepRef::Id("a".into())],
+            meta: StepMeta::default(),
         };
         let mut index = HashMap::new();
         index.insert("a".into(), step.clone());
-        let r = Runner::new(index, false, false, ConfigMeta::default());
+        let r = Runner::new(index, false, false, Meta::default());
         let result = r.run_step(&step, 0);
         assert!(result.is_err());
     }
