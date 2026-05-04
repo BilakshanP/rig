@@ -7,7 +7,7 @@
     "description": "Demonstrates every rig feature",
     "meta": {
         "retries": 1,                                   // global: retry failed steps once
-        "log": "/tmp/rig-kitchen-sink-{{timestamp}}.log" // save run transcript
+        "log": "/tmp/rig-kitchen-sink-{{timestamp:%Y-%m-%d}}.log" // custom strftime format
     },
 
     "steps": [
@@ -15,7 +15,7 @@
         // ── io: structured logging ──
         {
             "name": "Start",
-            "action": { "kind": "io", "level": "info", "message": "Beginning kitchen-sink demo..." }
+            "action": { "kind": "io", "level": "info", "message": "<fc>kitchen-sink</f> demo starting at <mb>{{timestamp:%H:%M:%S}}</m>", "markup": true }
         },
 
         // ── shell: basic command ──
