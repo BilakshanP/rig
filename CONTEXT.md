@@ -68,7 +68,8 @@ Actions are nested objects with a `kind` discriminator. Steps can have an `id` f
 - **`meta.retry-delay`** — seconds to sleep before each retry.
 - **Top-level `meta`** — global defaults for `retries`, `retry-delay`, `silent`, `sudo`, and `log` (run transcript path).
 - **`io` action** — structured logging with levels (`log`, `info`, `warn`, `error`) and optional aml markup. Always succeeds.
-- **`{{timestamp}}`** — built-in variable substituted at startup (format: `YYYYMMDDTHHMMSS`).
+- **`{{timestamp}}`** — built-in variable substituted at startup (default: `%Y%m%dT%H%M%S`). Custom format via `{{timestamp:%Y-%m-%d}}` (strftime syntax).
+- **Markup validation** — io actions with `markup: true` are validated at parse time; invalid aml fails `--validate`.
 - **Cycle protection** — hard limit of 64 entries per step (not user-configurable).
 - **Tilde expansion** — `~` expands to `$HOME` in all path fields.
 - **JSONC support** — `//` and `/* */` comments via `json_comments` crate.
@@ -115,5 +116,5 @@ rig <config-file> --validate     # Parse and validate without executing
 
 ## Tech Stack
 
-- Rust, serde + serde_json, clap (derive), json_comments, aml
+- Rust, serde + serde_json, clap (derive), json_comments, chrono, aml
 - Single binary, no runtime deps

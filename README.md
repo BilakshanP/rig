@@ -221,6 +221,16 @@ rig setup.json --set project=my-app --set env=prod
 
 Undefined variables fail immediately at startup. Use `\{\{` to escape literal double braces.
 
+### Built-in Variables
+
+`{{timestamp}}` is substituted at startup with the current time in `%Y%m%dT%H%M%S` format (e.g., `20260504T152259`). Use a custom strftime format with `{{timestamp:FORMAT}}`:
+
+```jsonc
+"log": "~/logs/{{timestamp}}.log"              // 20260504T152259.log
+"log": "~/logs/{{timestamp:%Y-%m-%d}}.log"     // 2026-05-04.log
+"log": "~/logs/{{timestamp:%H-%M-%S}}.log"     // 15-22-59.log
+```
+
 ## Examples
 
 See [`examples/`](examples/) for sample configs.
