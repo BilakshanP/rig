@@ -37,12 +37,19 @@ pub struct Runner {
     pub dry_run: bool,
     pub verbose: bool,
     pub config_meta: Meta,
+    pub scope: RefCell<crate::vars::Scope>,
     log_file: RefCell<Option<std::fs::File>>,
     entry_counts: RefCell<HashMap<String, u32>>,
 }
 
 impl Runner {
-    pub fn new(index: HashMap<String, Step>, dry_run: bool, verbose: bool, config_meta: Meta) -> Self {
+    pub fn new(
+        index: HashMap<String, Step>,
+        dry_run: bool,
+        verbose: bool,
+        config_meta: Meta,
+        scope: crate::vars::Scope,
+    ) -> Self {
         let log_file = if !dry_run {
             config_meta.log.as_ref().and_then(|p| {
                 let path = crate::path::expand_tilde(p);
@@ -52,7 +59,12 @@ impl Runner {
         } else {
             None
         };
-        Self { index, dry_run, verbose, config_meta, log_file: RefCell::new(log_file), entry_counts: RefCell::new(HashMap::new()) }
+        Self {
+            index, dry_run, verbose, config_meta,
+            scope: RefCell::new(scope),
+            log_file: RefCell::new(log_file),
+            entry_counts: RefCell::new(HashMap::new()),
+        }
     }
 
     pub fn run_steps(&self, steps: &[Step]) -> Result<(), ExecError> {
@@ -171,6 +183,11 @@ impl Runner {
     }
 
     /// Execute an action, returning the exit code (0 for non-shell actions on success).
+    /// Substitute runtime vars in a string using the current scope.
+    pub fn subst(&self, s: &str) -> String {
+        self.scope.borrow().substitute(s)
+    }
+
     fn exec_action(&self, action: &Action, meta: &StepMeta, indent: &str, _depth: usize) -> Result<i32, ExecError> {
         let sudo = meta.sudo || self.config_meta.sudo;
         match action {
@@ -178,6 +195,7 @@ impl Runner {
             Action::Git { repo, dest, on_conflict } => { self.exec_git(repo, dest, on_conflict, meta, indent)?; Ok(0) }
             Action::Fs { op, if_exists, if_not_exists } => { self.exec_fs(op, if_exists.as_ref(), if_not_exists.as_ref(), indent)?; Ok(0) }
             Action::Io { level, message, markup } => { self.exec_io(level, message, *markup, indent); Ok(0) }
+            Action::Var { name, source } => { self.exec_var(name, source, meta, indent)?; Ok(0) }
         }
     }
 
@@ -221,24 +239,27 @@ impl Runner {
     ) -> Result<i32, ExecError> {
         let mut last_code = 0;
         for cmd in commands {
+            let cmd = self.subst(cmd);
             if self.dry_run {
                 let prefix = if sudo { "sudo sh -c" } else { "sh -c" };
                 println!("{indent}  [dry-run] {prefix} {cmd:?}");
-                if let Some(d) = dir { println!("{indent}    dir: {d}"); }
+                if let Some(d) = dir { println!("{indent}    dir: {}", self.subst(d)); }
                 if let Some(e) = env { println!("{indent}    env: {e:?}"); }
                 continue;
             }
             let mut proc = if sudo {
                 let mut p = Command::new("sudo");
-                p.arg("sh").arg("-c").arg(cmd);
+                p.arg("sh").arg("-c").arg(&cmd);
                 p
             } else {
                 let mut p = Command::new("sh");
-                p.arg("-c").arg(cmd);
+                p.arg("-c").arg(&cmd);
                 p
             };
-            if let Some(d) = dir { proc.current_dir(expand_tilde(d)); }
-            if let Some(e) = env { proc.envs(e); }
+            if let Some(d) = dir { proc.current_dir(expand_tilde(&self.subst(d))); }
+            if let Some(e) = env {
+                for (k, v) in e { proc.env(k, self.subst(v)); }
+            }
             let output = proc.output()?;
             last_code = output.status.code().unwrap_or(-1);
             self.maybe_print(&output.stdout, &output.stderr, meta);
@@ -249,10 +270,148 @@ impl Runner {
         Ok(last_code)
     }
 
+    // -- Var --
+
+    fn exec_var(&self, name: &str, source: &VarSource, meta: &StepMeta, indent: &str) -> Result<(), ExecError> {
+        // Parse and validate the name.
+        let vr = crate::vars::VarRef::parse(name)
+            .ok_or_else(|| ExecError::Command(format!("invalid variable name: {name}")))?;
+        if !vr.is_runtime_writable() {
+            return Err(ExecError::Command(format!(
+                "cannot assign to non-mutable variable '{}'; only @-prefixed vars are runtime-writable",
+                vr.display()
+            )));
+        }
+
+        let key = vr.key();
+
+        if self.dry_run {
+            let desc = match source {
+                VarSource::From { from } => format!("capture stdout of {}", step_ref_label(from)),
+                VarSource::To { to } => format!("feed {key} to {}", step_ref_label(to)),
+                VarSource::Command { command } => format!("run `{command}`"),
+            };
+            println!("{indent}  [dry-run] var {key} := {desc}");
+            return Ok(());
+        }
+
+        match source {
+            VarSource::Command { command } => {
+                let cmd = self.subst(command);
+                let sudo = meta.sudo || self.config_meta.sudo;
+                let mut proc = if sudo {
+                    let mut p = Command::new("sudo");
+                    p.arg("sh").arg("-c").arg(&cmd);
+                    p
+                } else {
+                    let mut p = Command::new("sh");
+                    p.arg("-c").arg(&cmd);
+                    p
+                };
+                let output = proc.output()?;
+                if !output.status.success() {
+                    return Err(ExecError::Command(format!("var command failed: {cmd}")));
+                }
+                let value = String::from_utf8_lossy(&output.stdout).trim_end_matches('\n').to_string();
+                self.scope.borrow_mut().set(&key, value.clone());
+                println!("{indent}  {}", style::render(&format!("<fg>set</f> <mb>{key}</m> = {value:?}")));
+            }
+            VarSource::From { from } => {
+                // Run the referenced step as a shell action and capture stdout.
+                let step = resolve_step_ref(from, &self.index).map_err(|id| ExecError::StepNotFound(id.into()))?;
+                let output = self.capture_step_stdout(&step)?;
+                let value = output.trim_end_matches('\n').to_string();
+                self.scope.borrow_mut().set(&key, value.clone());
+                println!("{indent}  {}", style::render(&format!("<fg>set</f> <mb>{key}</m> <- {} stdout", step.name)));
+            }
+            VarSource::To { to } => {
+                // Feed the variable's current value as stdin to the referenced step.
+                let value = self.scope.borrow().get(&key).map(|s| s.to_string())
+                    .ok_or_else(|| ExecError::Command(format!("var '{key}' is not set")))?;
+                let step = resolve_step_ref(to, &self.index).map_err(|id| ExecError::StepNotFound(id.into()))?;
+                self.feed_step_stdin(&step, &value)?;
+                println!("{indent}  {}", style::render(&format!("<fg>fed</f> <mb>{key}</m> -> {}", step.name)));
+            }
+        }
+        Ok(())
+    }
+
+    /// Run a step whose action is Shell and capture its stdout.
+    fn capture_step_stdout(&self, step: &Step) -> Result<String, ExecError> {
+        match &step.action {
+            Action::Shell { commands, dir, env } => {
+                let sudo = step.meta.sudo || self.config_meta.sudo;
+                let mut acc = String::new();
+                for cmd in commands {
+                    let cmd = self.subst(cmd);
+                    let mut proc = if sudo {
+                        let mut p = Command::new("sudo");
+                        p.arg("sh").arg("-c").arg(&cmd);
+                        p
+                    } else {
+                        let mut p = Command::new("sh");
+                        p.arg("-c").arg(&cmd);
+                        p
+                    };
+                    if let Some(d) = dir { proc.current_dir(crate::path::expand_tilde(&self.subst(d))); }
+                    if let Some(e) = env {
+                        for (k, v) in e { proc.env(k, self.subst(v)); }
+                    }
+                    let output = proc.output()?;
+                    if !output.status.success() {
+                        return Err(ExecError::Command(format!("captured step failed: {}", step.name)));
+                    }
+                    acc.push_str(&String::from_utf8_lossy(&output.stdout));
+                }
+                Ok(acc)
+            }
+            _ => Err(ExecError::Command(format!("var from: step '{}' must be shell action", step.name))),
+        }
+    }
+
+    /// Feed a string to a shell step's stdin.
+    fn feed_step_stdin(&self, step: &Step, input: &str) -> Result<(), ExecError> {
+        match &step.action {
+            Action::Shell { commands, dir, env } => {
+                let sudo = step.meta.sudo || self.config_meta.sudo;
+                for cmd in commands {
+                    let cmd = self.subst(cmd);
+                    use std::process::Stdio;
+                    use std::io::Write;
+                    let mut proc = if sudo {
+                        let mut p = Command::new("sudo");
+                        p.arg("sh").arg("-c").arg(&cmd);
+                        p
+                    } else {
+                        let mut p = Command::new("sh");
+                        p.arg("-c").arg(&cmd);
+                        p
+                    };
+                    if let Some(d) = dir { proc.current_dir(crate::path::expand_tilde(&self.subst(d))); }
+                    if let Some(e) = env {
+                        for (k, v) in e { proc.env(k, self.subst(v)); }
+                    }
+                    let mut child = proc.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+                    if let Some(mut stdin) = child.stdin.take() {
+                        stdin.write_all(input.as_bytes())?;
+                    }
+                    let output = child.wait_with_output()?;
+                    self.maybe_print(&output.stdout, &output.stderr, &step.meta);
+                    if !output.status.success() {
+                        return Err(ExecError::Command(format!("fed step failed: {}", step.name)));
+                    }
+                }
+                Ok(())
+            }
+            _ => Err(ExecError::Command(format!("var to: step '{}' must be shell action", step.name))),
+        }
+    }
+
     // -- IO --
 
     fn exec_io(&self, level: &IoLevel, message: &str, markup: bool, indent: &str) {
-        let text = if markup { style::render(message) } else { message.to_string() };
+        let message = self.subst(message);
+        let text = if markup { style::render(&message) } else { message.clone() };
         let line = match level {
             IoLevel::Log => format!("{indent}  {text}"),
             IoLevel::Info => format!("{indent}  {}", style::render(&format!("<fc>info:</f> {text}"))),
@@ -274,7 +433,9 @@ impl Runner {
     // -- Git --
 
     fn exec_git(&self, repo: &str, dest: &str, on_conflict: &GitOnConflict, meta: &StepMeta, indent: &str) -> Result<(), ExecError> {
-        let dest_path = expand_tilde(dest);
+        let repo = self.subst(repo);
+        let dest = self.subst(dest);
+        let dest_path = expand_tilde(&dest);
         let exists = dest_path.exists();
 
         if self.dry_run {
@@ -287,7 +448,7 @@ impl Runner {
         }
 
         if !exists {
-            let output = Command::new("git").args(["clone", repo, &dest_path.to_string_lossy()]).output()?;
+            let output = Command::new("git").args(["clone", &repo, &dest_path.to_string_lossy()]).output()?;
             self.maybe_print(&output.stdout, &output.stderr, meta);
             if !output.status.success() {
                 return Err(ExecError::Command(format!("git clone failed ({})", output.status)));
@@ -325,8 +486,11 @@ impl Runner {
 
     fn fs_create(&self, path: &[String], recurse: bool, content: Option<&str>, if_exists: Option<&Condition>, indent: &str) -> Result<(), ExecError> {
         for p in path {
-            let full = expand_tilde(p);
+            let p = self.subst(p);
+            let full = expand_tilde(&p);
             let is_dir = p.ends_with('/');
+            let content_resolved = content.map(|c| self.subst(c));
+            let content = content_resolved.as_deref();
             if self.dry_run {
                 let kind = if is_dir { "dir" } else { "file" };
                 println!("{indent}  [dry-run] create {kind}: {}", full.display());
@@ -370,8 +534,10 @@ impl Runner {
     }
 
     fn fs_symlink(&self, from: &str, to: &str, if_exists: Option<&Condition>, indent: &str) -> Result<(), ExecError> {
-        let src = expand_tilde(from);
-        let dst = expand_tilde(to);
+        let from = self.subst(from);
+        let to = self.subst(to);
+        let src = expand_tilde(&from);
+        let dst = expand_tilde(&to);
         if self.dry_run {
             println!("{indent}  [dry-run] symlink {} -> {}", src.display(), dst.display());
             return Ok(());
@@ -390,8 +556,10 @@ impl Runner {
     }
 
     fn fs_copy(&self, from: &str, to: &str, if_exists: Option<&Condition>, if_not_exists: Option<&Condition>, indent: &str) -> Result<(), ExecError> {
-        let src = expand_tilde(from);
-        let dst = expand_tilde(to);
+        let from = self.subst(from);
+        let to = self.subst(to);
+        let src = expand_tilde(&from);
+        let dst = expand_tilde(&to);
         if self.dry_run {
             println!("{indent}  [dry-run] copy {} -> {}", src.display(), dst.display());
             return Ok(());
@@ -420,8 +588,10 @@ impl Runner {
     }
 
     fn fs_move(&self, from: &str, to: &str, if_exists: Option<&Condition>, if_not_exists: Option<&Condition>, indent: &str) -> Result<(), ExecError> {
-        let src = expand_tilde(from);
-        let dst = expand_tilde(to);
+        let from = self.subst(from);
+        let to = self.subst(to);
+        let src = expand_tilde(&from);
+        let dst = expand_tilde(&to);
         if self.dry_run {
             println!("{indent}  [dry-run] move {} -> {}", src.display(), dst.display());
             return Ok(());
@@ -442,7 +612,8 @@ impl Runner {
 
     fn fs_delete(&self, path: &[String], recurse: bool, if_not_exists: Option<&Condition>, indent: &str) -> Result<(), ExecError> {
         for p in path {
-            let full = expand_tilde(p);
+            let p = self.subst(p);
+            let full = expand_tilde(&p);
             if self.dry_run {
                 println!("{indent}  [dry-run] delete: {}", full.display());
                 continue;
@@ -576,6 +747,13 @@ impl Runner {
                 let ml = if *markup { " [markup]" } else { "" };
                 println!("{ai}{}", style::render(&format!("<md>{level:?}:</m> {message:?}{ml}")));
             }
+            Action::Var { name, source } => {
+                match source {
+                    VarSource::From { from } => println!("{ai}{}", style::render(&format!("<md>var {name} <-</m> {}", step_ref_label(from)))),
+                    VarSource::To { to } => println!("{ai}{}", style::render(&format!("<md>var {name} -></m> {}", step_ref_label(to)))),
+                    VarSource::Command { command } => println!("{ai}{}", style::render(&format!("<md>var {name} :=</m> {command:?}"))),
+                }
+            }
         }
 
         // on-success / on-failure / on-return
@@ -611,6 +789,14 @@ fn step_ref_label(sr: &StepRef) -> String {
     }
 }
 
+/// Resolve a StepRef to an owned Step, looking up ID refs in the index.
+fn resolve_step_ref<'a>(sr: &'a StepRef, index: &'a HashMap<String, Step>) -> Result<std::borrow::Cow<'a, Step>, &'a str> {
+    match sr {
+        StepRef::Id(id) => index.get(id).map(std::borrow::Cow::Borrowed).ok_or(id.as_str()),
+        StepRef::Inline(s) => Ok(std::borrow::Cow::Borrowed(s)),
+    }
+}
+
 fn step_refs_label(refs: &[StepRef]) -> String {
     refs.iter().map(step_ref_label).collect::<Vec<_>>().join(", ")
 }
@@ -628,11 +814,11 @@ mod tests {
     use std::fs;
 
     fn runner(index: HashMap<String, Step>) -> Runner {
-        Runner::new(index, false, false, Meta::default())
+        Runner::new(index, false, false, Meta::default(), crate::vars::Scope::default())
     }
 
     fn dry_runner() -> Runner {
-        Runner::new(HashMap::new(), true, false, Meta::default())
+        Runner::new(HashMap::new(), true, false, Meta::default(), crate::vars::Scope::default())
     }
 
     fn shell_step(commands: Vec<&str>, dir: Option<&str>) -> Step {
@@ -1078,7 +1264,7 @@ mod tests {
         };
         let mut index = HashMap::new();
         index.insert("a".into(), step.clone());
-        let r = Runner::new(index, false, false, Meta::default());
+        let r = Runner::new(index, false, false, Meta::default(), crate::vars::Scope::default());
         let result = r.run_step(&step, 0);
         assert!(result.is_err());
     }

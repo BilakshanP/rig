@@ -115,6 +115,13 @@ fn describe_inner(
             let ml = if *markup { " [markup]" } else { "" };
             println!("{ai}{}", style::render(&format!("<md>{level:?}:</m> {message:?}{ml}")));
         }
+        Action::Var { name, source } => {
+            match source {
+                VarSource::From { from } => println!("{ai}{}", style::render(&format!("<md>var {name} <-</m> {}", step_ref_label(from)))),
+                VarSource::To { to } => println!("{ai}{}", style::render(&format!("<md>var {name} -></m> {}", step_ref_label(to)))),
+                VarSource::Command { command } => println!("{ai}{}", style::render(&format!("<md>var {name} :=</m> {command:?}"))),
+            }
+        }
     }
 
     if let Some(refs) = &step.on_success { println!("{ai}{}", style::render(&format!("<md>on-success:</m> {}", step_refs_label(refs)))); }

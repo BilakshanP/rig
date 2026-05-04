@@ -7,7 +7,7 @@
     "description": "Demonstrates every rig feature",
     "meta": {
         "retries": 1,                                   // global: retry failed steps once
-        "log": "/tmp/rig-kitchen-sink-{{timestamp:%Y-%m-%d}}.log", // custom strftime format
+        "log": "/tmp/rig-kitchen-sink-{{#timestamp:%Y-%m-%d}}.log", // custom strftime format
         "vars": {                                       // variable defaults (CLI --set overrides)
             "env": "dev",
             "region": "us-east-1"
@@ -19,7 +19,7 @@
         // -- io: structured logging --
         {
             "name": "Start",
-            "action": { "kind": "io", "level": "info", "message": "<fc>kitchen-sink</f> demo starting at <mb>{{timestamp:%H:%M:%S}}</m>", "markup": true }
+            "action": { "kind": "io", "level": "info", "message": "<fc>kitchen-sink</f> demo starting at <mb>{{#timestamp:%H:%M:%S}}</m>", "markup": true }
         },
 
         // -- shell: basic command --
@@ -231,6 +231,20 @@
                 "commands": ["echo 'Would install Node.js here'"]
             },
             "meta": { "optional": true }
+        },
+
+        // -- var action: capture command output --
+        {
+            "name": "Capture timestamp",
+            "action": { "kind": "var", "name": "@run_id", "command": "date +%s" }
+        },
+        {
+            "name": "Use captured value",
+            "action": { "kind": "io", "level": "info", "message": "run_id = {{@run_id}}" }
+        },
+        {
+            "name": "Evaluate #now at runtime",
+            "action": { "kind": "io", "level": "info", "message": "time: {{#now:%H:%M:%S}}" }
         },
 
         // -- io: all levels --

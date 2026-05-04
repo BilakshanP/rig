@@ -222,38 +222,41 @@ A JSON Schema (`schema.json`) is included for editor autocompletion and validati
 
 ## Variables
 
-Use `--set key=value` to inject variables into configs. Variables use `{{key}}` syntax and are substituted before parsing:
+Rig has a layered variable system with scopes and mutability. Variables use `{{name}}` syntax, are resolved at runtime (not parse time), and fall into five categories based on prefix and case:
+
+| Syntax | Where set | Mutable at runtime |
+|--------|-----------|--------------------|
+| `{{#NAME}}` | Built-in (system-provided) | No |
+| `{{@NAME}}` | `meta.vars` + `var` action | Yes |
+| `{{@name}}` | `meta.vars`, `--set`, `var` action | Yes |
+| `{{NAME}}` | `meta.vars` | No (constant) |
+| `{{name}}` | `meta.vars` or `--set` | No (set once at startup) |
+
+**Case rule:** the first character of the first path segment determines upper/lower category.
+
+### Built-in variables
 
 ```jsonc
-{
-  "name": "setup-{{project}}",
-  "steps": [{
-    "name": "Create project",
-    "action": {
-      "kind": "shell",
-      "commands": ["mkdir -p ~/projects/{{project}}"]
-    }
-  }]
-}
+"{{#timestamp}}"         // %Y%m%dT%H%M%S at startup (e.g., 20260504T152259)
+"{{#timestamp:%Y-%m-%d}}" // Custom strftime format
+"{{#now}}"               // Current time, evaluated each use
+"{{#now:%H:%M:%S}}"      // Custom strftime at each use
+"{{#pwd}}"               // Current working directory at startup
 ```
-
-```bash
-rig setup.json --set project=my-app --set env=prod
-```
-
-Undefined variables fail immediately at startup. Use `\{\{` to escape literal double braces.
 
 ### Defaults via `meta.vars`
 
-Set default values for variables under `meta.vars`. CLI `--set` overrides them:
+`meta.vars` provides default values. CLI `--set key=value` overrides them. Values are literal strings — no substitution inside them.
 
 ```jsonc
 {
-  "name": "setup-{{project}}",
   "meta": {
     "vars": {
       "project": "my-app",
-      "env": "dev"
+      "env": "dev",
+      "super": {
+        "mario": { "bros": "smb" }   // nested: access as {{super.mario.bros}}
+      }
     }
   },
   "steps": [...]
@@ -261,36 +264,36 @@ Set default values for variables under `meta.vars`. CLI `--set` overrides them:
 ```
 
 ```bash
-rig setup.json                    # uses defaults (project=my-app, env=dev)
-rig setup.json --set env=prod     # overrides env, keeps default project
+rig setup.json                    # uses defaults
+rig setup.json --set env=prod     # overrides env
 ```
 
-Values in `meta.vars` are literal strings — no substitution is performed inside them.
+### Mutable variables and the `var` action
+
+`@`-prefixed variables are runtime-mutable via the `var` action:
+
+```jsonc
+// Capture a shell command's stdout
+{ "kind": "var", "name": "@hash", "command": "git rev-parse HEAD" }
+
+// Run a step and capture its stdout
+{ "kind": "var", "name": "@build_dir", "from": "make-tempdir-step" }
+
+// Feed a variable's value as stdin to a step
+{ "kind": "var", "name": "@config", "to": "apply-config-step" }
+```
+
+Only `@`-prefixed variables are writable at runtime. Writing to `{{NAME}}` or `{{name}}` is a parse-time error.
 
 ### Listing variables
 
-Use `--vars` to list all variables referenced in a config along with their defaults:
+Use `--vars` to list all variables referenced in a config with their defaults:
 
 ```bash
 rig setup.json --vars
 ```
 
-Output:
-```
-project  my-app
-env      dev
-region   (required)
-```
-
-### Built-in Variables
-
-`{{timestamp}}` is substituted at startup with the current time in `%Y%m%dT%H%M%S` format (e.g., `20260504T152259`). Use a custom strftime format with `{{timestamp:FORMAT}}`:
-
-```jsonc
-"log": "~/logs/{{timestamp}}.log"              // 20260504T152259.log
-"log": "~/logs/{{timestamp:%Y-%m-%d}}.log"     // 2026-05-04.log
-"log": "~/logs/{{timestamp:%H-%M-%S}}.log"     // 15-22-59.log
-```
+Undefined non-`@` variables are rejected at parse time. Use `\{\{` to escape literal double braces.
 
 ## Examples
 

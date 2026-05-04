@@ -3,6 +3,7 @@ mod executor;
 mod inspect;
 mod path;
 mod style;
+mod vars;
 
 use clap::Parser;
 use std::collections::HashMap;
@@ -138,7 +139,8 @@ fn main() -> ExitCode {
         }
     }
 
-    let runner = executor::Runner::new(index, cli.dry_run, cli.verbose, cfg.meta.clone());
+    let scope = config::build_scope(&cfg, &vars);
+    let runner = executor::Runner::new(index, cli.dry_run, cli.verbose, cfg.meta.clone(), scope);
     let cwd = std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default();
 
     if cli.dry_run {

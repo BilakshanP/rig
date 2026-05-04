@@ -28,8 +28,7 @@
                 "retry-delay": { "type": "number", "minimum": 0, "description": "Global default: seconds before each retry" },
                 "vars": {
                     "type": "object",
-                    "additionalProperties": { "type": "string" },
-                    "description": "Variable defaults (overridden by --set key=value)"
+                    "description": "Variable defaults (may be nested; overridden by --set). Access via dot notation: {{super.mario.bros}}"
                 }
             }
         },
@@ -136,7 +135,8 @@
                 { "$ref": "#/definitions/action_fs_copy" },
                 { "$ref": "#/definitions/action_fs_move" },
                 { "$ref": "#/definitions/action_fs_delete" },
-                { "$ref": "#/definitions/action_io" }
+                { "$ref": "#/definitions/action_io" },
+                { "$ref": "#/definitions/action_var" }
             ]
         },
         "action_shell": {
@@ -269,6 +269,31 @@
                 "markup": { "type": "boolean", "default": false, "description": "Parse message as aml markup" }
             },
             "required": ["kind", "level", "message"]
+        },
+        "action_var": {
+            "properties": {
+                "kind": { "const": "var" },
+                "name": { "type": "string", "description": "Variable name (must start with @ for runtime mutability)" },
+                "command": { "type": "string", "description": "Shell command; captures stdout into the variable" },
+                "from": {
+                    "oneOf": [
+                        { "type": "string", "description": "Step ID whose stdout to capture" },
+                        { "$ref": "#/definitions/step" }
+                    ]
+                },
+                "to": {
+                    "oneOf": [
+                        { "type": "string", "description": "Step ID to feed stdin to" },
+                        { "$ref": "#/definitions/step" }
+                    ]
+                }
+            },
+            "required": ["kind", "name"],
+            "oneOf": [
+                { "required": ["command"] },
+                { "required": ["from"] },
+                { "required": ["to"] }
+            ]
         },
         "path_spec": {
             "oneOf": [

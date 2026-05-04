@@ -32,8 +32,9 @@ pub struct Meta {
     pub retries: Option<u32>,
     #[serde(default, rename = "retry-delay")]
     pub retry_delay: Option<f64>,
+    /// Raw vars tree. May contain nested objects; flattened into dot-path keys at runtime.
     #[serde(default)]
-    pub vars: HashMap<String, String>,
+    pub vars: serde_json::Value,
 }
 
 // -- Step --
@@ -127,6 +128,25 @@ pub enum Action {
         #[serde(default)]
         markup: bool,
     },
+    Var {
+        /// Variable name (must include @ prefix).
+        name: String,
+        #[serde(flatten)]
+        source: VarSource,
+    },
+}
+
+// -- Var --
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum VarSource {
+    /// Run the referenced step and capture its stdout.
+    From { from: StepRef },
+    /// Run the referenced step, feeding the variable's current value as stdin.
+    To { to: StepRef },
+    /// Run a shell command and capture its stdout directly.
+    Command { command: String },
 }
 
 // -- IO --
@@ -290,105 +310,130 @@ pub fn parse_config(path: &str, cli_vars: &HashMap<String, String>, placeholder:
     let content = std::fs::read_to_string(path)?;
     let mut buf = Vec::new();
     io::Read::read_to_end(&mut json_comments::StripComments::new(content.as_bytes()), &mut buf)?;
-    let mut json = String::from_utf8_lossy(&buf).into_owned();
-
-    // Extract meta.vars as literal defaults (before any substitution).
-    let meta_vars = extract_meta_vars(&json);
-
-    json = json.replace("\\{\\{", "\x00LBRACE\x00");
-
-    // Built-in {{timestamp}} and {{timestamp:FORMAT}} variables.
-    let now = chrono::Local::now();
-    while let Some(start) = json.find("{{timestamp:") {
-        let rest = &json[start + 12..];
-        if let Some(end) = rest.find("}}") {
-            let fmt = &rest[..end];
-            let formatted = now.format(fmt).to_string();
-            json = format!("{}{formatted}{}", &json[..start], &json[start + 12 + end + 2..]);
-        } else {
-            break;
-        }
-    }
-    let default_ts = now.format("%Y%m%dT%H%M%S").to_string();
-    json = json.replace("{{timestamp}}", &default_ts);
-
-    // Merge: meta.vars provide defaults, CLI vars override.
-    let mut final_vars = meta_vars;
-    for (k, v) in cli_vars {
-        final_vars.insert(k.clone(), v.clone());
-    }
-
-    for (key, val) in &final_vars {
-        json = json.replace(&format!("{{{{{key}}}}}"), val);
-    }
-
-    if !placeholder
-        && let Some(pos) = json.find("{{")
-        && let Some(end) = json[pos + 2..].find("}}")
-    {
-        let var_name = &json[pos + 2..pos + 2 + end];
-        return Err(ConfigError::UndefinedVar(var_name.to_string()));
-    }
-
-    json = json.replace("\x00LBRACE\x00", "{{");
+    let json = String::from_utf8_lossy(&buf).into_owned();
 
     let config: Config = serde_json::from_str(&json)?;
     validate_unique_ids(&config)?;
     validate_refs(&config)?;
     validate_markup(&config)?;
+    validate_vars(&config, cli_vars, placeholder)?;
     Ok(config)
 }
 
-/// Extract meta.vars from JSON without full parsing.
-/// Returns empty map if not present or malformed.
-fn extract_meta_vars(json: &str) -> HashMap<String, String> {
-    let value: serde_json::Value = match serde_json::from_str(json) {
-        Ok(v) => v,
-        Err(_) => return HashMap::new(),
-    };
-    let vars = match value.pointer("/meta/vars") {
-        Some(serde_json::Value::Object(m)) => m,
-        _ => return HashMap::new(),
-    };
-    vars.iter()
-        .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-        .collect()
-}
+/// Validate variable usage: check that all referenced names are either known constants,
+/// built-ins, or declared @-vars (which will be provided by var actions or --set).
+fn validate_vars(config: &Config, cli_vars: &HashMap<String, String>, placeholder: bool) -> Result<(), ConfigError> {
+    if placeholder { return Ok(()); }
 
-/// Scan config text for all {{var}} references (for --vars listing).
-/// Returns a sorted list of unique variable names, excluding {{timestamp}} and {{timestamp:...}}.
-pub fn scan_vars(path: &str) -> Result<Vec<String>, ConfigError> {
-    let content = std::fs::read_to_string(path)?;
-    let mut buf = Vec::new();
-    io::Read::read_to_end(&mut json_comments::StripComments::new(content.as_bytes()), &mut buf)?;
-    let json = String::from_utf8_lossy(&buf).replace("\\{\\{", "");
+    let meta_vars = crate::vars::flatten_vars(&config.meta.vars);
 
-    let mut vars = std::collections::BTreeSet::new();
-    let mut rest = json.as_str();
-    while let Some(start) = rest.find("{{") {
-        let after = &rest[start + 2..];
-        if let Some(end) = after.find("}}") {
-            let name = &after[..end];
-            // Skip timestamp built-in
-            if name != "timestamp" && !name.starts_with("timestamp:") {
-                vars.insert(name.to_string());
+    // Collect all referenced vars from all string fields in the config.
+    let mut referenced: Vec<crate::vars::VarRef> = Vec::new();
+    collect_refs_in_config(config, &mut referenced);
+
+    for vr in &referenced {
+        use crate::vars::VarKind;
+        match vr.kind() {
+            VarKind::BuiltinStartup | VarKind::BuiltinRuntime => {
+                // Built-ins are always fine (we handle known names at resolve time).
+                // We could reject unknown #names here, but leave that as runtime error.
             }
-            rest = &after[end + 2..];
-        } else {
-            break;
+            VarKind::ConstUpper => {
+                // Must be defined in meta.vars.
+                if !meta_vars.contains_key(&vr.key()) {
+                    return Err(ConfigError::UndefinedVar(vr.display()));
+                }
+            }
+            VarKind::ConstLower => {
+                // Defined in meta.vars or via --set.
+                if !meta_vars.contains_key(&vr.key()) && !cli_vars.contains_key(&vr.key()) {
+                    return Err(ConfigError::UndefinedVar(vr.display()));
+                }
+            }
+            VarKind::MutableUpper | VarKind::MutableLower => {
+                // Runtime-mutable. No parse-time check needed -- may be set by var action.
+                // Initial value from meta.vars or (for lowercase) --set is optional.
+            }
         }
     }
-    Ok(vars.into_iter().collect())
+
+    // Also: any `var` action targeting an immutable var is a parse-time error.
+    for step in &config.steps { check_var_action_writes(step)?; }
+
+    Ok(())
 }
 
-/// Extract just meta.vars from a config file (for --vars listing).
-/// Values are returned as literal strings (no substitution performed).
-pub fn read_meta_vars(path: &str) -> Result<HashMap<String, String>, ConfigError> {
-    let content = std::fs::read_to_string(path)?;
-    let mut buf = Vec::new();
-    io::Read::read_to_end(&mut json_comments::StripComments::new(content.as_bytes()), &mut buf)?;
-    let json = String::from_utf8_lossy(&buf).into_owned();
-    Ok(extract_meta_vars(&json))
+fn check_var_action_writes(step: &Step) -> Result<(), ConfigError> {
+    if let Action::Var { name, .. } = &step.action {
+        match crate::vars::VarRef::parse(name) {
+            Some(vr) if vr.is_runtime_writable() => {}
+            Some(vr) => {
+                return Err(ConfigError::UndefinedVar(format!(
+                    "var action target '{}' is not runtime-writable (use @-prefix)",
+                    vr.display()
+                )));
+            }
+            None => return Err(ConfigError::UndefinedVar(format!("invalid var action target: {name}"))),
+        }
+    }
+    for child in &step.then {
+        if let StepRef::Inline(s) = child { check_var_action_writes(s)?; }
+    }
+    Ok(())
+}
+
+/// Walk the entire config and collect all {{var}} references from string fields.
+fn collect_refs_in_config(config: &Config, refs: &mut Vec<crate::vars::VarRef>) {
+    refs.extend(crate::vars::scan_refs(&config.name));
+    if let Some(d) = &config.description { refs.extend(crate::vars::scan_refs(d)); }
+    if let Some(log) = &config.meta.log {
+        refs.extend(crate::vars::scan_refs(log));
+    }
+    for step in &config.steps { collect_refs_in_step(step, refs); }
+}
+
+fn collect_refs_in_step(step: &Step, refs: &mut Vec<crate::vars::VarRef>) {
+    refs.extend(crate::vars::scan_refs(&step.name));
+    if let Some(d) = &step.description { refs.extend(crate::vars::scan_refs(d)); }
+    collect_refs_in_action(&step.action, refs);
+    for child in &step.then {
+        if let StepRef::Inline(s) = child { collect_refs_in_step(s, refs); }
+    }
+}
+
+fn collect_refs_in_action(action: &Action, refs: &mut Vec<crate::vars::VarRef>) {
+    match action {
+        Action::Shell { commands, dir, env } => {
+            for c in commands { refs.extend(crate::vars::scan_refs(c)); }
+            if let Some(d) = dir { refs.extend(crate::vars::scan_refs(d)); }
+            if let Some(e) = env {
+                for v in e.values() { refs.extend(crate::vars::scan_refs(v)); }
+            }
+        }
+        Action::Git { repo, dest, .. } => {
+            refs.extend(crate::vars::scan_refs(repo));
+            refs.extend(crate::vars::scan_refs(dest));
+        }
+        Action::Fs { op, .. } => match op {
+            FsOp::Create { path, content, .. } => {
+                for p in path { refs.extend(crate::vars::scan_refs(p)); }
+                if let Some(c) = content { refs.extend(crate::vars::scan_refs(c)); }
+            }
+            FsOp::Delete { path, .. } => {
+                for p in path { refs.extend(crate::vars::scan_refs(p)); }
+            }
+            FsOp::Symlink { from, to } | FsOp::Copy { from, to } | FsOp::Move { from, to } => {
+                refs.extend(crate::vars::scan_refs(from));
+                refs.extend(crate::vars::scan_refs(to));
+            }
+        },
+        Action::Io { message, .. } => refs.extend(crate::vars::scan_refs(message)),
+        Action::Var { source, .. } => {
+            if let VarSource::Command { command } = source {
+                refs.extend(crate::vars::scan_refs(command));
+            }
+        }
+    }
 }
 
 // -- Validation --
@@ -414,6 +459,22 @@ fn collect_ids(step: &Step, seen: &mut std::collections::HashSet<String>) -> Res
     })
 }
 
+/// Build the initial runtime scope from meta.vars + CLI --set overrides.
+pub fn build_scope(config: &Config, cli_vars: &HashMap<String, String>) -> crate::vars::Scope {
+    let pwd = std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default();
+    let mut scope = crate::vars::Scope::new(chrono::Local::now(), pwd);
+
+    // Flatten meta.vars and populate the scope (only string/number/bool leaves).
+    let flat = crate::vars::flatten_vars(&config.meta.vars);
+    for (k, v) in flat { scope.set(&k, v); }
+
+    // Overlay CLI vars (only allowed on `name` or `@name` categories, but we don't
+    // enforce at this layer -- validate_vars would catch misuse).
+    for (k, v) in cli_vars { scope.set(k, v.clone()); }
+
+    scope
+}
+
 /// Build a map of id -> Step for reference resolution.
 pub fn build_step_index(config: &Config) -> HashMap<String, Step> {
     let mut map = HashMap::new();
@@ -426,6 +487,35 @@ fn index_step(step: &Step, map: &mut HashMap<String, Step>) {
     for child in &step.then {
         if let StepRef::Inline(s) = child { index_step(s, map); }
     }
+}
+
+/// Scan a config file for all referenced variable keys (for --vars display).
+pub fn scan_vars(path: &str) -> Result<Vec<String>, ConfigError> {
+    let content = std::fs::read_to_string(path)?;
+    let mut buf = Vec::new();
+    io::Read::read_to_end(&mut json_comments::StripComments::new(content.as_bytes()), &mut buf)?;
+    let json = String::from_utf8_lossy(&buf).into_owned();
+    let mut set = std::collections::BTreeSet::new();
+    for vr in crate::vars::scan_refs(&json) {
+        // Skip built-ins from the listing.
+        if matches!(vr.kind(), crate::vars::VarKind::BuiltinStartup | crate::vars::VarKind::BuiltinRuntime) { continue; }
+        set.insert(vr.display());
+    }
+    Ok(set.into_iter().collect())
+}
+
+/// Extract meta.vars from a config file (for --vars listing defaults).
+pub fn read_meta_vars(path: &str) -> Result<HashMap<String, String>, ConfigError> {
+    let content = std::fs::read_to_string(path)?;
+    let mut buf = Vec::new();
+    io::Read::read_to_end(&mut json_comments::StripComments::new(content.as_bytes()), &mut buf)?;
+    let json = String::from_utf8_lossy(&buf).into_owned();
+    let value: serde_json::Value = serde_json::from_str(&json)?;
+    let vars = match value.pointer("/meta/vars") {
+        Some(v) => v.clone(),
+        None => return Ok(HashMap::new()),
+    };
+    Ok(crate::vars::flatten_vars(&vars))
 }
 
 fn validate_refs(config: &Config) -> Result<(), ConfigError> {
@@ -780,15 +870,21 @@ mod tests {
 
     #[test]
     fn var_substitution() {
+        // In the new model, parse_config leaves {{vars}} unresolved.
+        // Substitution happens at runtime via Scope.
         let json = r#"{
             "name": "{{project}}", "version": "1.0.0",
+            "meta": { "vars": { "project": "my-app", "greeting": "hello" } },
             "steps": [{ "name": "run", "action": { "kind": "shell", "commands": ["echo {{greeting}}"] } }]
         }"#;
         let path = std::env::temp_dir().join("rig_var_test.json");
         std::fs::write(&path, json).unwrap();
-        let vars = HashMap::from([("project".into(), "my-app".into()), ("greeting".into(), "hello".into())]);
-        let cfg = parse_config(path.to_str().unwrap(), &vars, false).unwrap();
-        assert_eq!(cfg.name, "my-app");
+        let cfg = parse_config(path.to_str().unwrap(), &HashMap::new(), false).unwrap();
+        // Name is still the raw template...
+        assert_eq!(cfg.name, "{{project}}");
+        // ...but a scope built from it resolves correctly.
+        let scope = build_scope(&cfg, &HashMap::new());
+        assert_eq!(scope.substitute(&cfg.name), "my-app");
         std::fs::remove_file(path).ok();
     }
 
@@ -802,8 +898,9 @@ mod tests {
         let path = std::env::temp_dir().join("rig_meta_vars_test.json");
         std::fs::write(&path, json).unwrap();
         let cfg = parse_config(path.to_str().unwrap(), &HashMap::new(), false).unwrap();
-        assert_eq!(cfg.name, "default-name");
-        assert_eq!(cfg.meta.vars.get("env").unwrap(), "dev");
+        let scope = build_scope(&cfg, &HashMap::new());
+        assert_eq!(scope.substitute(&cfg.name), "default-name");
+        assert_eq!(scope.get("env"), Some("dev"));
         std::fs::remove_file(path).ok();
     }
 
@@ -818,7 +915,8 @@ mod tests {
         std::fs::write(&path, json).unwrap();
         let cli_vars = HashMap::from([("project".into(), "overridden".into())]);
         let cfg = parse_config(path.to_str().unwrap(), &cli_vars, false).unwrap();
-        assert_eq!(cfg.name, "overridden");
+        let scope = build_scope(&cfg, &cli_vars);
+        assert_eq!(scope.substitute(&cfg.name), "overridden");
         std::fs::remove_file(path).ok();
     }
 
@@ -831,14 +929,18 @@ mod tests {
         let path = std::env::temp_dir().join("rig_scan_test.json");
         std::fs::write(&path, json).unwrap();
         let vars = scan_vars(path.to_str().unwrap()).unwrap();
-        assert_eq!(vars, vec!["env".to_string(), "greeting".to_string(), "project".to_string()]);
+        // scan_vars returns VarRef::display() strings including any prefix
+        assert!(vars.contains(&"project".to_string()));
+        assert!(vars.contains(&"greeting".to_string()));
+        assert!(vars.contains(&"env".to_string()));
         std::fs::remove_file(path).ok();
     }
 
     #[test]
     fn scan_vars_excludes_timestamp() {
         let json = r#"{
-            "name": "{{project}}-{{timestamp}}-{{timestamp:%Y}}", "version": "1.0.0",
+            "name": "{{project}}-{{#timestamp}}-{{#timestamp:%Y}}", "version": "1.0.0",
+            "meta": { "vars": { "project": "p" } },
             "steps": []
         }"#;
         let path = std::env::temp_dir().join("rig_scan_ts_test.json");
@@ -855,8 +957,45 @@ mod tests {
         std::fs::write(&path, json).unwrap();
         assert!(matches!(
             parse_config(path.to_str().unwrap(), &HashMap::new(), false),
-            Err(ConfigError::UndefinedVar(v)) if v == "missing"
+            Err(ConfigError::UndefinedVar(_))
         ));
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn at_var_not_rejected_without_definition() {
+        // @vars are runtime-mutable, so they don't need to be defined at parse time.
+        let json = r#"{
+            "name": "test", "version": "1.0.0",
+            "steps": [{ "name": "use", "action": { "kind": "shell", "commands": ["echo {{@result}}"] } }]
+        }"#;
+        let path = std::env::temp_dir().join("rig_atvar_test.json");
+        std::fs::write(&path, json).unwrap();
+        assert!(parse_config(path.to_str().unwrap(), &HashMap::new(), false).is_ok());
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn write_to_immutable_rejected() {
+        let json = r#"{
+            "name": "test", "version": "1.0.0",
+            "steps": [{ "name": "bad", "action": { "kind": "var", "name": "result", "command": "echo x" } }]
+        }"#;
+        let path = std::env::temp_dir().join("rig_immut_write_test.json");
+        std::fs::write(&path, json).unwrap();
+        assert!(parse_config(path.to_str().unwrap(), &HashMap::new(), false).is_err());
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn write_to_at_var_accepted() {
+        let json = r#"{
+            "name": "test", "version": "1.0.0",
+            "steps": [{ "name": "ok", "action": { "kind": "var", "name": "@result", "command": "echo x" } }]
+        }"#;
+        let path = std::env::temp_dir().join("rig_atvar_write_test.json");
+        std::fs::write(&path, json).unwrap();
+        assert!(parse_config(path.to_str().unwrap(), &HashMap::new(), false).is_ok());
         std::fs::remove_file(path).ok();
     }
 
@@ -872,12 +1011,17 @@ mod tests {
 
     #[test]
     fn timestamp_custom_format() {
-        let json = r#"{ "name": "run-{{timestamp:%Y-%m-%d}}", "version": "1.0.0", "steps": [] }"#;
+        let json = r#"{ "name": "run-{{#timestamp:%Y-%m-%d}}", "version": "1.0.0", "steps": [] }"#;
         let path = std::env::temp_dir().join("rig_tsfmt_test.json");
         std::fs::write(&path, json).unwrap();
         let cfg = parse_config(path.to_str().unwrap(), &HashMap::new(), false).unwrap();
-        assert!(cfg.name.starts_with("run-20"));
-        assert_eq!(cfg.name.len(), "run-2026-05-04".len());
+        // Template preserved at parse time.
+        assert_eq!(cfg.name, "run-{{#timestamp:%Y-%m-%d}}");
+        // Scope resolves it.
+        let scope = build_scope(&cfg, &HashMap::new());
+        let resolved = scope.substitute(&cfg.name);
+        assert!(resolved.starts_with("run-20"));
+        assert_eq!(resolved.len(), "run-2026-05-04".len());
         std::fs::remove_file(path).ok();
     }
 

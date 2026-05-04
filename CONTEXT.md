@@ -12,6 +12,7 @@ A Rust CLI tool called `rig` that reads a JSON/JSONC config and executes setup s
 | `git`   | Clone a repo; handle existing dest               |
 | `fs`    | File operations: create, symlink, copy, move, delete |
 | `io`    | Structured logging with levels and optional markup |
+| `var`   | Set a runtime-mutable `@var` from a step's stdout or a shell command |
 
 ## Config Structure
 
@@ -23,9 +24,10 @@ Actions are nested objects with a `kind` discriminator. Steps can have an `id` f
   "version": "1.0.0",
   "meta": {
     "retries": 2,
-    "log": "~/logs/{{name}}-{{timestamp}}.log",
+    "log": "~/logs/{{name}}-{{#timestamp}}.log",
     "silent": ["stdout"],
-    "sudo": false
+    "sudo": false,
+    "vars": { "project": "my-app" }
   },
   "steps": [
     {
@@ -68,7 +70,15 @@ Actions are nested objects with a `kind` discriminator. Steps can have an `id` f
 - **`meta.retry-delay`** — seconds to sleep before each retry.
 - **Top-level `meta`** — global defaults for `retries`, `retry-delay`, `silent`, `sudo`, and `log` (run transcript path).
 - **`io` action** — structured logging with levels (`log`, `info`, `warn`, `error`) and optional aml markup. Always succeeds.
-- **`{{timestamp}}`** — built-in variable substituted at startup (default: `%Y%m%dT%H%M%S`). Custom format via `{{timestamp:%Y-%m-%d}}` (strftime syntax).
+- **`var` action** — set a mutable `@var` from `command` (shell output), `from` (step stdout), or `to` (feed variable to step stdin).
+- **Variable system** — 5 categories by prefix/case:
+  - `#NAME` (built-in: `#timestamp`, `#now`, `#pwd`)
+  - `@NAME` (mutable, runtime-only)
+  - `@name` (mutable, CLI-settable)
+  - `NAME` (constant from `meta.vars`)
+  - `name` (from `meta.vars` or `--set`, immutable after startup)
+- **Runtime substitution** — all `{{...}}` references resolved per-action, not at parse time.
+- **Nested vars** — `meta.vars` can contain nested objects; accessed via dot notation (e.g., `{{super.mario.bros}}`).
 - **`meta.vars`** — literal default values for variables. CLI `--set key=value` overrides. Use `--vars` to list all variables referenced in a config with their defaults.
 - **Markup validation** — io actions with `markup: true` are validated at parse time; invalid aml fails `--validate`.
 - **Cycle protection** — hard limit of 64 entries per step (not user-configurable).
