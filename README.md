@@ -39,8 +39,10 @@ rig https://example.com/setup.rig
 ### Bundle subcommands
 
 ```bash
-rig pack <dir> -o <file>.rig    # Build a .rig bundle from a source directory
-rig unpack <file>.rig -o <dir>  # Extract a bundle to a directory
+rig pack <dir>                  # Write to <dir>.rig in cwd
+rig pack <dir> -o <file>.rig    # Explicit output path
+rig unpack <file>.rig           # Extract to <file>/ (strip .rig)
+rig unpack <file>.rig -o <dir>  # Explicit destination
 rig info <file>.rig             # Show manifest summary + file list
 ```
 

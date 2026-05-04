@@ -126,6 +126,97 @@ fn invoking_without_args_or_subcommand_fails() {
 }
 
 #[test]
+fn pack_without_output_flag_derives_rig_suffix() {
+    let src = tempfile::tempdir().unwrap();
+    write(
+        &src.path().join("manifest.json"),
+        r#"{"name":"auto","version":"0.0.1","steps":[]}"#,
+    );
+    // Source dir is named by its tempdir suffix; pack it from a scratch cwd
+    // so the derived output lands somewhere we control.
+    let work = tempfile::tempdir().unwrap();
+    let copy_dir = work.path().join("auto");
+    std::fs::create_dir_all(&copy_dir).unwrap();
+    std::fs::copy(src.path().join("manifest.json"), copy_dir.join("manifest.json")).unwrap();
+
+    let status = bin()
+        .current_dir(work.path())
+        .arg("pack")
+        .arg("auto")
+        .status()
+        .unwrap();
+    assert!(status.success(), "pack without --output failed");
+    assert!(
+        work.path().join("auto.rig").is_file(),
+        "expected auto.rig in cwd"
+    );
+}
+
+#[test]
+fn unpack_without_output_flag_strips_rig_suffix() {
+    let src = tempfile::tempdir().unwrap();
+    write(
+        &src.path().join("manifest.json"),
+        r#"{"name":"auto","version":"0.0.1","steps":[]}"#,
+    );
+    let work = tempfile::tempdir().unwrap();
+    let archive = work.path().join("thing.rig");
+    let status = bin()
+        .arg("pack")
+        .arg(src.path())
+        .arg("-o")
+        .arg(&archive)
+        .status()
+        .unwrap();
+    assert!(status.success());
+
+    let status = bin()
+        .current_dir(work.path())
+        .arg("unpack")
+        .arg("thing.rig")
+        .status()
+        .unwrap();
+    assert!(status.success(), "unpack without --output failed");
+    // Should have created ./thing/ (the .rig suffix stripped) in cwd.
+    assert!(
+        work.path().join("thing").join("manifest.json").is_file(),
+        "expected thing/manifest.json after default unpack"
+    );
+}
+
+#[test]
+fn unpack_errors_when_no_rig_suffix_and_no_output() {
+    let src = tempfile::tempdir().unwrap();
+    write(
+        &src.path().join("manifest.json"),
+        r#"{"name":"auto","version":"0.0.1","steps":[]}"#,
+    );
+    let work = tempfile::tempdir().unwrap();
+    let archive = work.path().join("archive.tgz"); // deliberate: no .rig
+    let status = bin()
+        .arg("pack")
+        .arg(src.path())
+        .arg("-o")
+        .arg(&archive)
+        .status()
+        .unwrap();
+    assert!(status.success());
+
+    let output = bin()
+        .current_dir(work.path())
+        .arg("unpack")
+        .arg("archive.tgz")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = strip_ansi(&String::from_utf8_lossy(&output.stderr));
+    assert!(
+        stderr.contains(".rig suffix"),
+        "expected suffix error, got: {stderr}"
+    );
+}
+
+#[test]
 fn running_a_trivial_bundle_succeeds() {
     // End-to-end smoke test: a bundle whose only step is an io banner. This
     // exercises the full bundle-detection → open_bundle → Runner path

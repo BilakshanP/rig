@@ -59,17 +59,18 @@ enum Commands {
     Pack {
         /// Source directory (must contain manifest.json or manifest.jsonc at the root)
         src: PathBuf,
-        /// Output .rig path
+        /// Output path. Defaults to `<basename(src)>.rig` in the current directory.
         #[arg(short, long)]
-        output: PathBuf,
+        output: Option<PathBuf>,
     },
     /// Unpack a .rig bundle into a directory
     Unpack {
         /// Bundle archive
         archive: PathBuf,
-        /// Destination directory (created if missing)
+        /// Destination directory. Defaults to the archive filename with
+        /// `.rig` stripped (must be a `.rig` filename when omitted).
         #[arg(short, long)]
-        output: PathBuf,
+        output: Option<PathBuf>,
     },
     /// Show manifest metadata and file list of a .rig bundle
     Info {
@@ -327,6 +328,16 @@ fn report_bundle_staging(runner: &executor::Runner) {
 fn run_subcommand(cmd: Commands) -> ExitCode {
     match cmd {
         Commands::Pack { src, output } => {
+            let output = match output {
+                Some(p) => p,
+                None => match default_pack_output(&src) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
+                        return ExitCode::FAILURE;
+                    }
+                },
+            };
             if let Err(e) = bundle::pack(&src, &output) {
                 eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
                 return ExitCode::FAILURE;
@@ -342,6 +353,16 @@ fn run_subcommand(cmd: Commands) -> ExitCode {
             ExitCode::SUCCESS
         }
         Commands::Unpack { archive, output } => {
+            let output = match output {
+                Some(p) => p,
+                None => match default_unpack_output(&archive) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
+                        return ExitCode::FAILURE;
+                    }
+                },
+            };
             if let Err(e) = bundle::unpack(&archive, &output) {
                 eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
                 return ExitCode::FAILURE;
@@ -367,6 +388,40 @@ fn run_subcommand(cmd: Commands) -> ExitCode {
             }
         },
     }
+}
+
+/// Derive the default `rig pack` output path: `<basename(src)>.rig` in the
+/// current directory. Matches the convention of `tar czf foo.tar.gz foo`
+/// producing `foo.tar.gz` in cwd regardless of where `foo` lives.
+fn default_pack_output(src: &std::path::Path) -> Result<PathBuf, String> {
+    let stem = src
+        .file_name()
+        .ok_or_else(|| format!("cannot derive output name from {}", src.display()))?;
+    let mut out = std::ffi::OsString::from(stem);
+    out.push(".rig");
+    Ok(PathBuf::from(out))
+}
+
+/// Derive the default `rig unpack` output path: archive filename with the
+/// `.rig` suffix stripped. Errors if the archive isn't named `*.rig` — the
+/// user should pass `--output` explicitly in that case so we don't overwrite
+/// or collide with the archive itself.
+fn default_unpack_output(archive: &std::path::Path) -> Result<PathBuf, String> {
+    let name = archive
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| format!("cannot derive output name from {}", archive.display()))?;
+    let stripped = name.strip_suffix(".rig").ok_or_else(|| {
+        format!(
+            "archive {name:?} has no .rig suffix; pass --output to choose a destination explicitly"
+        )
+    })?;
+    if stripped.is_empty() {
+        return Err(format!(
+            "archive {name:?} would unpack to an empty name; pass --output explicitly"
+        ));
+    }
+    Ok(PathBuf::from(stripped))
 }
 
 fn print_bundle_info(info: &bundle::BundleInfo, archive: &std::path::Path) {
