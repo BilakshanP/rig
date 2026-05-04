@@ -5,6 +5,12 @@ A declarative CLI tool for bootstrapping dev environments from JSON configs.
 ## Install
 
 ```bash
+cargo install --git https://github.com/BilakshanP/rig.git
+```
+
+Or from a local clone:
+
+```bash
 cargo install --path .
 ```
 
