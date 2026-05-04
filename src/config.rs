@@ -227,6 +227,7 @@ pub enum ConfigError {
     DuplicateId(String),
     UnknownRef(String),
     UndefinedVar(String),
+    InvalidMarkup(String, String),
 }
 
 impl fmt::Display for ConfigError {
@@ -237,6 +238,7 @@ impl fmt::Display for ConfigError {
             Self::DuplicateId(id) => write!(f, "duplicate step id: {id}"),
             Self::UnknownRef(id) => write!(f, "unknown step reference: {id}"),
             Self::UndefinedVar(name) => write!(f, "undefined variable: {name}"),
+            Self::InvalidMarkup(step, msg) => write!(f, "invalid aml markup in step '{step}': {msg}"),
         }
     }
 }
@@ -259,14 +261,22 @@ pub fn parse_config(path: &str, vars: &HashMap<String, String>) -> Result<Config
 
     json = json.replace("\\{\\{", "\x00LBRACE\x00");
 
-    // Built-in variables
-    let now = {
-        let d = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
-        let secs = d.as_secs();
-        let (y, m, day, h, min, s) = epoch_to_ymdhms(secs);
-        format!("{y:04}{m:02}{day:02}T{h:02}{min:02}{s:02}")
-    };
-    json = json.replace("{{timestamp}}", &now);
+    // Built-in {{timestamp}} and {{timestamp:FORMAT}} variables
+    let now = chrono::Local::now();
+    // Replace {{timestamp:FORMAT}} first (greedy match)
+    while let Some(start) = json.find("{{timestamp:") {
+        let rest = &json[start + 12..];
+        if let Some(end) = rest.find("}}") {
+            let fmt = &rest[..end];
+            let formatted = now.format(fmt).to_string();
+            json = format!("{}{formatted}{}", &json[..start], &json[start + 12 + end + 2..]);
+        } else {
+            break;
+        }
+    }
+    // Replace plain {{timestamp}} with default format
+    let default_ts = now.format("%Y%m%dT%H%M%S").to_string();
+    json = json.replace("{{timestamp}}", &default_ts);
 
     for (key, val) in vars {
         json = json.replace(&format!("{{{{{key}}}}}"), val);
@@ -284,6 +294,7 @@ pub fn parse_config(path: &str, vars: &HashMap<String, String>) -> Result<Config
     let config: Config = serde_json::from_str(&json)?;
     validate_unique_ids(&config)?;
     validate_refs(&config)?;
+    validate_markup(&config)?;
     Ok(config)
 }
 
@@ -380,28 +391,22 @@ fn visit_steprefs(refs: &StepRefs, f: &mut impl FnMut(&StepRef) -> Result<(), Co
     }
 }
 
-fn epoch_to_ymdhms(secs: u64) -> (u64, u64, u64, u64, u64, u64) {
-    let s = secs % 60;
-    let min = (secs / 60) % 60;
-    let h = (secs / 3600) % 24;
-    let mut days = secs / 86400;
-    let mut y: u64 = 1970;
-    loop {
-        let leap = y.is_multiple_of(4) && (!y.is_multiple_of(100) || y.is_multiple_of(400));
-        let dy = if leap { 366 } else { 365 };
-        if days < dy { break; }
-        days -= dy;
-        y += 1;
+fn validate_markup(config: &Config) -> Result<(), ConfigError> {
+    for step in &config.steps { check_markup(step)?; }
+    Ok(())
+}
+
+fn check_markup(step: &Step) -> Result<(), ConfigError> {
+    if let Action::Io { markup: true, message, .. } = &step.action {
+        use aml::prelude::Document;
+        if Document::try_new(message).is_err() {
+            return Err(ConfigError::InvalidMarkup(step.name.clone(), message.clone()));
+        }
     }
-    let leap = y.is_multiple_of(4) && (!y.is_multiple_of(100) || y.is_multiple_of(400));
-    let mdays = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    let mut m: u64 = 0;
-    for md in mdays {
-        if days < md { break; }
-        days -= md;
-        m += 1;
+    for child in &step.then {
+        if let ChildRef::Inline(s) = child { check_markup(s)?; }
     }
-    (y, m + 1, days + 1, h, min, s)
+    Ok(())
 }
 
 #[cfg(test)]
@@ -896,6 +901,55 @@ mod tests {
         let cfg = parse_config(path.to_str().unwrap(), &HashMap::new()).unwrap();
         assert!(!cfg.name.contains("{{timestamp}}"));
         assert!(cfg.name.starts_with("run-20"));
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn timestamp_custom_format() {
+        let json = r#"{ "name": "run-{{timestamp:%Y-%m-%d}}", "version": "1.0.0", "steps": [] }"#;
+        let dir = std::env::temp_dir();
+        let path = dir.join("rig_tsfmt_test.json");
+        std::fs::write(&path, json).unwrap();
+        let cfg = parse_config(path.to_str().unwrap(), &HashMap::new()).unwrap();
+        // Should be like "run-2026-05-04"
+        assert!(cfg.name.starts_with("run-20"));
+        assert!(cfg.name.contains('-'));
+        assert_eq!(cfg.name.len(), "run-2026-05-04".len());
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn valid_markup_accepted() {
+        let json = r#"{
+            "name": "test", "version": "1.0.0",
+            "steps": [{
+                "name": "log",
+                "action": { "kind": "io", "level": "info", "message": "<fg>hello</f>", "markup": true }
+            }]
+        }"#;
+        let dir = std::env::temp_dir();
+        let path = dir.join("rig_markup_ok_test.json");
+        std::fs::write(&path, json).unwrap();
+        assert!(parse_config(path.to_str().unwrap(), &HashMap::new()).is_ok());
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn invalid_markup_rejected() {
+        let json = r#"{
+            "name": "test", "version": "1.0.0",
+            "steps": [{
+                "name": "bad",
+                "action": { "kind": "io", "level": "info", "message": "<invalid_tag>oops", "markup": true }
+            }]
+        }"#;
+        let dir = std::env::temp_dir();
+        let path = dir.join("rig_markup_bad_test.json");
+        std::fs::write(&path, json).unwrap();
+        assert!(matches!(
+            parse_config(path.to_str().unwrap(), &HashMap::new()),
+            Err(ConfigError::InvalidMarkup(..))
+        ));
         std::fs::remove_file(path).ok();
     }
 }
