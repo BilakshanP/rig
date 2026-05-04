@@ -481,7 +481,15 @@ impl Runner {
         let prompt_text = prompt_resolved.as_deref().unwrap_or("");
 
         let line = if secret {
-            rpassword::prompt_password(prompt_text)
+            use std::io::Write;
+            if !prompt_text.is_empty() {
+                print!("{prompt_text}");
+                std::io::stdout().flush().ok();
+            }
+            let config = rpassword::ConfigBuilder::new()
+                .password_feedback_mask('*')
+                .build();
+            rpassword::read_password_with_config(config)
                 .map_err(|e| ExecError::Command(format!("stdin read failed: {e}")))?
         } else {
             use std::io::Write;
