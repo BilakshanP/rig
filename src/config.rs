@@ -185,7 +185,7 @@ impl fmt::Display for ConfigError {
             Self::Parse(e) => write!(f, "failed to parse config: {e}"),
             Self::DuplicateId(id) => write!(f, "duplicate step id: {id}"),
             Self::UnknownRef(id) => write!(f, "unknown step reference: {id}"),
-            Self::UndefinedVar(name) => write!(f, "undefined variable: {{{{{name}}}}}"),
+            Self::UndefinedVar(name) => write!(f, "undefined variable: {name}"),
         }
     }
 }

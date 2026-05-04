@@ -58,8 +58,10 @@ fn main() -> ExitCode {
         cfg.max_retries,
     );
 
+    let cwd = std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default();
+
     if cli.dry_run {
-        println!("{}", style::render(&format!("<fc>[dry-run]</f> <mb>{}</m>", cfg.name)));
+        println!("{}", style::render(&format!("<fc>[dry-run]</f> <mb>{}</m> <md>({cwd})</m>", cfg.name)));
         if let Some(id) = &cli.only {
             match runner.index.get(id) {
                 Some(step) => runner.dry_run_audit(std::slice::from_ref(step)),
@@ -74,7 +76,7 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    println!("{}", style::render(&format!("<fg>Running:</f> <mb>{}</m>", cfg.name)));
+    println!("{}", style::render(&format!("<fg>Running:</f> <mb>{}</m> <md>({cwd})</m>", cfg.name)));
 
     if let Some(id) = &cli.only {
         match runner.index.get(id) {
