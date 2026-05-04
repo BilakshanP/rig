@@ -2,7 +2,7 @@
 
 ## What is this?
 
-A Rust CLI tool called `rig` that reads a JSON/JSONC config and executes setup steps to bootstrap dev environments. Declarative, with dry-run support and colored output.
+A Rust CLI tool called `rig` that reads a JSON/JSONC config and executes setup steps to bootstrap dev environments. Declarative, with dry-run support and colored output. Configs can also be packaged as `.rig` bundles — tar.gz archives that ship a manifest together with real template files so large configs don't need to inline every file body as an escaped JSON string.
 
 ## Action Kinds
 
@@ -72,12 +72,13 @@ Actions are nested objects with a `kind` discriminator. Steps can have an `id` f
 - **`io` action** — write: `level`/`message`/`markup`; read: `read`/`prompt?`/`default?`/`secret?` (stores line from stdin into an `@var`).
 - **`var` action** — set a mutable `@var` from `command` (shell output), `from` (step stdout), `to` (feed variable to step stdin), or `file` (read file contents).
 - **Variable system** — 5 categories by prefix/case:
-  - `#NAME` (built-in: `#timestamp`, `#now`, `#pwd`)
+  - `#NAME` (built-in: `#timestamp`, `#now`, `#pwd`, `#bundle` (bundle runs only))
   - `@NAME` (mutable, runtime-only)
   - `@name` (mutable, CLI-settable)
   - `NAME` (constant from `meta.vars`)
   - `name` (from `meta.vars` or `--set`, immutable after startup)
 - **Runtime substitution** — all `{{...}}` references resolved per-action, not at parse time.
+- **Escape syntax** — `{{{{foo}}}}` renders to the literal string `{{foo}}`. Used by bundles to reference their own templated directory names without resolving them.
 - **Nested vars** — `meta.vars` can contain nested objects; accessed via dot notation (e.g., `{{super.mario.bros}}`).
 - **`meta.vars`** — literal default values for variables. CLI `--set key=value` overrides. Use `--vars` to list all variables referenced in a config with their defaults.
 - **Markup validation** — io actions with `markup: true` are validated at parse time; invalid aml fails `--validate`.
@@ -91,15 +92,22 @@ Actions are nested objects with a `kind` discriminator. Steps can have an `id` f
 
 FS actions use nested sub-action objects within `kind: "fs"`:
 
-| Sub-action | Fields                    | Supports                     |
-|------------|---------------------------|------------------------------|
-| `create`   | `path`, `recurse`, `content` | `if-exists`               |
-| `symlink`  | `from`, `to`              | `if-exists`                  |
-| `copy`     | `from`, `to`              | `if-exists`, `if-not-exists` |
-| `move`     | `from`, `to`              | `if-exists`, `if-not-exists` |
-| `delete`   | `path`, `recurse`         | `if-not-exists`              |
+| Sub-action | Fields                             | Supports                     |
+|------------|------------------------------------|------------------------------|
+| `create`   | `path`, `recurse`, `content`, `expand` | `if-exists`              |
+| `symlink`  | `from`, `to`, `expand`             | `if-exists`                  |
+| `copy`     | `from`, `to`, `expand`             | `if-exists`, `if-not-exists` |
+| `move`     | `from`, `to`, `expand`             | `if-exists`, `if-not-exists` |
+| `delete`   | `path`, `recurse`, `expand`        | `if-not-exists`              |
 
 `path` can be a string or array. Trailing `/` = directory. `content` writes inline text to a file.
+
+`expand` controls `{{var}}` substitution per field: `true` (all), `false`
+(byte-exact, e.g., when a path literally contains `{{name}}`), or object
+`{ "from": bool, "to": bool, "path": bool, "contents": bool }`. Default: paths
+rendered, contents byte-exact. Inside a `.rig` bundle, `fs.copy` auto-renders
+templated file contents when the source lives inside the bundle's staging
+root (unless matched by `bundle.binary` globs).
 
 ## CLI
 
@@ -113,9 +121,15 @@ rig <config-file> --list         # One-line summary of all steps
 rig <config-file> --describe <id>          # Describe a step in detail
 rig <config-file> --describe <id> --depth  # Expand sub-steps recursively
 rig <config-file> --describe <id> --depth 2  # Expand up to 2 levels
+
+rig pack <dir> -o <file>.rig    # Build a .rig bundle from a directory
+rig unpack <file>.rig -o <dir>  # Extract a .rig bundle
+rig info <file>.rig             # Summary of manifest + file list
 ```
 
-`<config-file>` can be a local path or a URL (`http://` / `https://`).
+`<config-file>` can be a local path, a URL (`http://` / `https://`), or a
+`.rig` bundle archive. Bundles are auto-detected by `.rig` extension or
+gzip magic bytes.
 
 ## Dry-Run Audit
 
@@ -131,7 +145,41 @@ rig <config-file> --describe <id> --depth 2  # Expand up to 2 levels
 
 `schema.json` (draft-07) at project root. Reference via `"$schema": "./schema.json"`.
 
+## Bundle Format
+
+A `.rig` bundle is a tar.gz archive with a `manifest.json` or `manifest.jsonc`
+at the root and arbitrary template files alongside it. The manifest is itself
+a rig config with an optional `bundle` section:
+
+```jsonc
+{
+  "name": "...",
+  "bundle": {
+    "extract-to": "tmp",           // "tmp" (default) | "cwd" | "home" | { "path": "..." }
+    "cleanup": "on-success",       // "always" | "on-success" (default) | "never"
+    "binary": ["assets/**/*.png"]  // globs for files copied byte-for-byte
+  },
+  "steps": [ ... ]
+}
+```
+
+- `extract-to` chooses where the bundle is staged before the manifest runs.
+- `cleanup` controls the staging dir's lifecycle:
+  - `always` — remove unconditionally on exit.
+  - `on-success` — remove only if the run succeeded; keep for inspection on failure.
+  - `never` — keep and print the staging path.
+- `binary` lists globs (relative to bundle root) whose files are copied raw; everything else goes through variable substitution when read via `fs.copy` from inside the bundle.
+
+During a bundle run, `fs.copy` detects when the source path lives inside the
+staging root and renders templated file contents on the way out. Sources
+outside the staging root (or byte-matched by `binary`) are copied byte-for-byte.
+`{{#bundle}}` resolves to the staging root so manifests can reference their
+own payload files: `"from": "{{#bundle}}/{{{{name}}}}/pyproject.toml"` pairs
+the `#bundle` substitution with a `{{{{name}}}}` escape to match the literal
+on-disk directory named `{{name}}`.
+
 ## Tech Stack
 
 - Rust, serde + serde_json, clap (derive), json_comments, chrono, aml
+- Bundle I/O: tar + flate2, tempfile, globset
 - Single binary, no runtime deps

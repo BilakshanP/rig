@@ -151,9 +151,22 @@ fn main() -> ExitCode {
     // magic bytes), open it, stage it per `bundle.extract-to`, and redirect
     // `config_path` to the manifest inside the staging dir. The BundleCtx is
     // bound at function scope so its cleanup runs at end of main.
+    //
+    // Pure-inspection flags (`--validate`, `--list`, `--describe`, `--vars`)
+    // should be able to open a bundle without providing every required
+    // variable via `--set`; force placeholder-mode for the manifest parse in
+    // that case so undefined vars don't abort the flow. `--dry-run` and
+    // `--only` still run through full validation because they need a
+    // resolvable scope.
+    let inspection_only = cli.validate
+        || cli.list
+        || cli.list_vars
+        || cli.describe.is_some();
+    let effective_placeholder = cli.placeholder || inspection_only;
+
     let mut bundle_ctx: Option<bundle::BundleCtx> = None;
     let config_path = if bundle::looks_like_bundle(std::path::Path::new(&config_path)) {
-        match bundle::open_bundle(std::path::Path::new(&config_path), &vars, cli.placeholder) {
+        match bundle::open_bundle(std::path::Path::new(&config_path), &vars, effective_placeholder) {
             Ok((_cfg, ctx)) => {
                 // Locate the manifest inside the staging root. open_bundle
                 // already verified it exists.
@@ -199,7 +212,7 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    let cfg = match config::parse_config(&config_path, &vars, cli.placeholder) {
+    let cfg = match config::parse_config(&config_path, &vars, effective_placeholder) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
@@ -232,7 +245,10 @@ fn main() -> ExitCode {
         }
     }
 
-    let scope = config::build_scope(&cfg, &vars);
+    let mut scope = config::build_scope(&cfg, &vars);
+    if let Some(ctx) = bundle_ctx.as_ref() {
+        scope.set_bundle_root(ctx.root.to_string_lossy().into_owned());
+    }
     let runner = match bundle_ctx.take() {
         Some(ctx) => executor::Runner::new_with_bundle(index, cli.dry_run, cli.verbose, cfg.meta.clone(), scope, ctx),
         None => executor::Runner::new(index, cli.dry_run, cli.verbose, cfg.meta.clone(), scope),

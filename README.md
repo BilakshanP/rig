@@ -17,7 +17,8 @@ cargo install --path .
 ## Usage
 
 ```bash
-rig setup.json              # Run the setup
+rig setup.json              # Run a config
+rig setup.rig               # Run a bundle (see below)
 rig setup.json --dry-run    # Full audit — see everything before executing
 rig setup.json --validate   # Parse and validate only
 rig setup.json --only <id>  # Run a single step by ID
@@ -28,10 +29,19 @@ rig setup.json --describe <id> --depth  # Expand sub-steps recursively
 rig setup.json --describe <id> --depth 2  # Expand up to 2 levels
 ```
 
-Configs can also be loaded from URLs:
+Configs and bundles can also be loaded from URLs:
 
 ```bash
 rig https://example.com/setup.jsonc --set project=my-app
+rig https://example.com/setup.rig
+```
+
+### Bundle subcommands
+
+```bash
+rig pack <dir> -o <file>.rig    # Build a .rig bundle from a source directory
+rig unpack <file>.rig -o <dir>  # Extract a bundle to a directory
+rig info <file>.rig             # Show manifest summary + file list
 ```
 
 ## Config Format
@@ -110,6 +120,31 @@ File system operations use nested sub-action objects:
 // Delete
 { "kind": "fs", "delete": { "path": "~/.cache/old", "recurse": true }, "if-not-exists": "skip" }
 ```
+
+#### `expand` flag
+
+Every fs sub-action accepts an optional `expand` flag that controls `{{var}}`
+substitution per-field. The default (`{ "from": true, "to": true, "path": true, "contents": false }`)
+renders `{{...}}` in path arguments — matching the default behavior of every
+other action — while leaving file contents byte-exact. Shorthand `true` enables
+every field including `contents`; `false` disables every field, useful when
+a path contains literal `{{...}}` directory names (see the [python-project
+bundle](examples/python-project/)).
+
+```jsonc
+// Paths rendered, contents rendered too (e.g. for templating a checked-in file)
+{ "kind": "fs", "copy": { "from": "template.toml", "to": "~/.config/{{app}}.toml", "expand": true } }
+
+// Byte-exact — use when a filename literally contains {{...}}
+{ "kind": "fs", "copy": { "from": "./{{ph}}/data", "to": "~/data", "expand": false } }
+
+// Per-field — render destination but match source as literal
+{ "kind": "fs", "copy": { "from": "{{name}}/file", "to": "./{{name}}/file", "expand": { "from": false } } }
+```
+
+Inside a `.rig` bundle, `fs.copy` automatically renders templated file
+contents when the source lives inside the bundle's staging root (bypass with
+`bundle.binary` globs for raw files).
 
 ### io
 
@@ -255,7 +290,13 @@ Rig has a layered variable system with scopes and mutability. Variables use `{{n
 "{{#now}}"               // Current time, evaluated each use
 "{{#now:%H:%M:%S}}"      // Custom strftime at each use
 "{{#pwd}}"               // Current working directory at startup
+"{{#bundle}}"            // Absolute path to the bundle staging root (bundle runs only)
 ```
+
+`{{#bundle}}` resolves to the temp/cwd/home/custom staging directory chosen
+by the manifest's `bundle.extract-to` field. Outside a bundle run it stays
+literal (like any other unresolved reference), which surfaces misuse in the
+output.
 
 ### Defaults via `meta.vars`
 
@@ -309,7 +350,11 @@ Use `--vars` to list all variables referenced in a config with their defaults:
 rig setup.json --vars
 ```
 
-Undefined non-`@` variables are rejected at parse time. Use `\{\{` to escape literal double braces.
+Undefined non-`@` variables are rejected at parse time. To include a literal
+`{{foo}}` in output (so it stays unsubstituted), wrap it in an extra pair of
+braces on each side: `{{{{foo}}}}` renders to `{{foo}}`. The python-project
+bundle uses this to reference its own templated directory names without
+having them resolved at copy time.
 
 ## Examples
 

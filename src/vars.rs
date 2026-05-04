@@ -125,6 +125,11 @@ pub struct Scope {
     /// Precomputed `#timestamp` (and `#pwd`) for this run.
     startup_ts: Option<chrono::DateTime<chrono::Local>>,
     startup_pwd: Option<String>,
+    /// Set when running a `.rig` bundle: absolute path to the staging root.
+    /// Resolved as `{{#bundle}}`. `None` outside bundle runs, in which case
+    /// `{{#bundle}}` stays as a literal template (same behavior as any other
+    /// unresolved reference).
+    bundle_root: Option<String>,
 }
 
 impl Scope {
@@ -133,7 +138,17 @@ impl Scope {
             values: HashMap::new(),
             startup_ts: Some(startup_ts),
             startup_pwd: Some(startup_pwd),
+            bundle_root: None,
         }
+    }
+
+    /// Record the bundle staging root so `{{#bundle}}` resolves to it.
+    ///
+    /// Called by the CLI immediately after `open_bundle` succeeds; leaves the
+    /// field `None` for plain-config runs so `{{#bundle}}` stays unresolved
+    /// (and therefore prints literally) in that case.
+    pub fn set_bundle_root(&mut self, path: String) {
+        self.bundle_root = Some(path);
     }
 
     /// Insert a value under the given dot-path key.
@@ -164,6 +179,7 @@ impl Scope {
                 Some(ts.format(fmt).to_string())
             }
             "pwd" => self.startup_pwd.clone(),
+            "bundle" => self.bundle_root.clone(),
             _ => None,
         }
     }
@@ -192,36 +208,89 @@ impl Scope {
     }
 
     fn substitute_impl(&self, s: &str, highlight_unresolved: bool) -> String {
+        // Scan left-to-right emitting plain text until we hit `{{`.
+        // Escapes: `{{{{` → literal `{{`, `}}}}` → literal `}}`. Keeps the
+        // template syntax usable inside strings that themselves need to
+        // contain literal double-brace pairs (e.g., a path with a literal
+        // `{{name}}` directory segment).
+        //
+        // Byte-indexed scan is safe because `{` and `}` are ASCII and any
+        // non-ASCII UTF-8 byte is never equal to 0x7b/0x7d. We only ever
+        // slice at positions we've confirmed are ASCII boundaries (4-byte
+        // escape markers and the two-byte `{{` opener) and at the index
+        // returned by `find` which is a char-boundary.
         let mut out = String::with_capacity(s.len());
-        let mut rest = s;
-        while let Some(start) = rest.find("{{") {
-            out.push_str(&rest[..start]);
-            let after = &rest[start + 2..];
-            if let Some(end) = after.find("}}") {
-                let expr = &after[..end];
-                if let Some(vr) = VarRef::parse(expr)
-                    && let Some(val) = self.resolve(&vr)
-                {
-                    out.push_str(&val);
-                } else if highlight_unresolved {
-                    out.push_str("<fy>{{");
-                    out.push_str(expr);
-                    out.push_str("}}</f>");
-                } else {
-                    out.push_str("{{");
-                    out.push_str(expr);
-                    out.push_str("}}");
-                }
-                rest = &after[end + 2..];
-            } else {
-                out.push_str("{{");
-                out.push_str(after);
-                break;
+        let bytes = s.as_bytes();
+        let mut i = 0usize;
+        let mut plain_start = 0usize;
+
+        let flush_plain = |out: &mut String, plain_start: usize, upto: usize| {
+            if plain_start < upto {
+                out.push_str(&s[plain_start..upto]);
             }
+        };
+
+        while i < bytes.len() {
+            if bytes[i..].starts_with(b"{{{{") {
+                flush_plain(&mut out, plain_start, i);
+                out.push_str("{{");
+                i += 4;
+                plain_start = i;
+                continue;
+            }
+            if bytes[i..].starts_with(b"}}}}") {
+                flush_plain(&mut out, plain_start, i);
+                out.push_str("}}");
+                i += 4;
+                plain_start = i;
+                continue;
+            }
+            if bytes[i..].starts_with(b"{{") {
+                flush_plain(&mut out, plain_start, i);
+                let body_start = i + 2;
+                let rest_bytes = &bytes[body_start..];
+                if let Some(end_rel) = find_subsequence(rest_bytes, b"}}") {
+                    let end = body_start + end_rel;
+                    let expr = &s[body_start..end];
+                    if let Some(vr) = VarRef::parse(expr)
+                        && let Some(val) = self.resolve(&vr)
+                    {
+                        out.push_str(&val);
+                    } else if highlight_unresolved {
+                        out.push_str("<fy>{{");
+                        out.push_str(expr);
+                        out.push_str("}}</f>");
+                    } else {
+                        out.push_str("{{");
+                        out.push_str(expr);
+                        out.push_str("}}");
+                    }
+                    i = end + 2;
+                    plain_start = i;
+                    continue;
+                } else {
+                    // No closing `}}` — pass through the remainder verbatim.
+                    out.push_str(&s[i..]);
+                    return out;
+                }
+            }
+            i += 1;
         }
-        out.push_str(rest);
+        flush_plain(&mut out, plain_start, bytes.len());
         out
     }
+}
+
+/// Locate `needle` within `haystack` by byte comparison. Small helper so the
+/// scanner doesn't have to re-slice UTF-8 boundaries; the inputs we search
+/// for (`{{` and `}}`) are ASCII so byte search is safe.
+fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return None;
+    }
+    haystack
+        .windows(needle.len())
+        .position(|w| w == needle)
 }
 
 /// Flatten a nested JSON object into dot-path keys with string values.
@@ -251,20 +320,37 @@ fn flatten_inner(prefix: &str, value: &serde_json::Value, out: &mut HashMap<Stri
     }
 }
 
-/// Scan a string for all `{{...}}` variable references.
+/// Scan a string for all `{{...}}` variable references. Escaped `{{{{` (and
+/// `}}}}`) sequences are treated as literals and do not contribute a ref.
 pub fn scan_refs(s: &str) -> Vec<VarRef> {
     let mut refs = Vec::new();
-    let mut rest = s;
-    while let Some(start) = rest.find("{{") {
-        let after = &rest[start + 2..];
-        if let Some(end) = after.find("}}") {
-            if let Some(vr) = VarRef::parse(&after[..end]) {
-                refs.push(vr);
-            }
-            rest = &after[end + 2..];
-        } else {
-            break;
+    let bytes = s.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i..].starts_with(b"{{{{") {
+            // Literal `{{` — skip the escape.
+            i += 4;
+            continue;
         }
+        if bytes[i..].starts_with(b"}}}}") {
+            i += 4;
+            continue;
+        }
+        if bytes[i..].starts_with(b"{{") {
+            let body_start = i + 2;
+            let rest_bytes = &bytes[body_start..];
+            if let Some(end_rel) = find_subsequence(rest_bytes, b"}}") {
+                let end = body_start + end_rel;
+                if let Some(vr) = VarRef::parse(&s[body_start..end]) {
+                    refs.push(vr);
+                }
+                i = end + 2;
+                continue;
+            } else {
+                break;
+            }
+        }
+        i += 1;
     }
     refs
 }
@@ -390,5 +476,56 @@ mod tests {
         assert!(!VarRef::parse("name").unwrap().is_runtime_writable());
         assert!(!VarRef::parse("NAME").unwrap().is_runtime_writable());
         assert!(!VarRef::parse("#timestamp").unwrap().is_runtime_writable());
+    }
+
+    #[test]
+    fn scope_resolves_bundle_builtin_when_set() {
+        let mut s = Scope::new(chrono::Local::now(), "/tmp".into());
+        s.set_bundle_root("/tmp/stage-xyz".into());
+        assert_eq!(s.substitute("path: {{#bundle}}/x"), "path: /tmp/stage-xyz/x");
+    }
+
+    #[test]
+    fn scope_bundle_builtin_unresolved_without_bundle() {
+        // Outside a bundle run, `{{#bundle}}` stays literal (same behavior
+        // as any other unresolved reference) so misuse is visible.
+        let s = Scope::new(chrono::Local::now(), "/tmp".into());
+        assert_eq!(s.substitute("path: {{#bundle}}/x"), "path: {{#bundle}}/x");
+    }
+
+    #[test]
+    fn escape_produces_literal_double_braces() {
+        let mut s = Scope::new(chrono::Local::now(), "/tmp".into());
+        s.set("name", "world".into());
+        // `{{{{name}}}}` → literal `{{name}}`.
+        assert_eq!(s.substitute("hi {{{{name}}}}"), "hi {{name}}");
+    }
+
+    #[test]
+    fn escape_coexists_with_real_substitution() {
+        let mut s = Scope::new(chrono::Local::now(), "/tmp".into());
+        s.set_bundle_root("/stage".into());
+        // `{{#bundle}}` resolves, neighboring `{{{{name}}}}` stays literal.
+        assert_eq!(
+            s.substitute("{{#bundle}}/{{{{name}}}}/pyproject.toml"),
+            "/stage/{{name}}/pyproject.toml"
+        );
+    }
+
+    #[test]
+    fn scan_refs_skips_escaped_sequences() {
+        let refs = scan_refs("{{real}} and {{{{literal}}}} done");
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].key(), "real");
+    }
+
+    #[test]
+    fn escape_only_when_exactly_four_braces() {
+        let mut s = Scope::new(chrono::Local::now(), "/tmp".into());
+        s.set("x", "X".into());
+        // Three braces on the left: the scanner grabs the first pair as a
+        // template opener, leaving `{x` as the expression. That isn't a
+        // valid var name (leading `{`) so the whole `{{...}}` stays literal.
+        assert_eq!(s.substitute("{{{x}}"), "{{{x}}");
     }
 }

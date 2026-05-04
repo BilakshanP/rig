@@ -4,9 +4,10 @@ Read `CONTEXT.md` first for full project context.
 
 ## Current State
 
-- Fully implemented with new schema and runtime variable system
-- 72 tests passing, clippy clean
+- Fully implemented with `.rig` bundle format, manifest+templates, `expand` flag on fs actions, and bundle-aware `fs.copy` content rendering
+- 140 tests passing (127 unit + 13 integration), clippy clean
 - JSONC support via `json_comments` crate
+- Bundle I/O via `tar` + `flate2` + `tempfile` + `globset`
 
 ## File Structure
 
@@ -14,21 +15,33 @@ Read `CONTEXT.md` first for full project context.
 schema.json       — JSON Schema (draft-07) for editor validation/autocompletion
 setup.json        — Sample config referencing schema.json
 examples/
-  dev-env.jsonc   — Annotated example with all features
-  bootstrap.jsonc — Example: install Rust, clone repo, build rig
+  dev-env.jsonc      — Annotated example with all features
+  bootstrap.jsonc    — Example: install Rust, clone repo, build rig
+  vars-demo.jsonc    — Variable system walkthrough
+  kitchen-sink.jsonc — Broad feature coverage
+  python-project/    — Bundle source tree (pack with `rig pack`)
+    manifest.jsonc
+    {{name}}/...     — templated payload files (literal `{{name}}` dirname)
 src/
-  main.rs         — CLI entry point (clap derive) + orchestration
+  main.rs         — CLI entry point (clap derive) + orchestration + subcommands
   config.rs       — Config/Step/Action types + parse_config() + validation + build_scope()
-  executor.rs     — Runner with execute dispatch, dry-run audit, retry tracking, runtime subst
+                    + `bundle: Option<BundleMeta>` + `ExpandFlags` on every FsOp
+  executor.rs     — Runner with execute dispatch, dry-run audit, retry tracking, runtime subst,
+                    bundle-aware fs.copy content rendering
+  bundle.rs       — .rig archive format: pack/unpack/info, open_bundle, BundleCtx + Drop-based
+                    cleanup, BinaryMatcher (globset)
   inspect.rs      — --list and --describe display logic
-  vars.rs         — Variable system: VarRef parser, Scope, substitution
+  vars.rs         — Variable system: VarRef parser, Scope (with #bundle), substitution with
+                    {{{{...}}}} escape
   path.rs         — tilde expansion helper
   style.rs        — aml wrapper for colored output
+tests/
+  cli_bundle.rs   — Integration tests exercising the compiled binary
 ```
 
 ## Data Model
 
-- `Config` — `name`, `version`, optional `description`, `meta: Meta`, `steps: Vec<Step>`
+- `Config` — `name`, `version`, optional `description`, `meta: Meta`, `bundle: Option<BundleMeta>`, `steps: Vec<Step>`
 - `Meta` — `log?`, `silent: Vec<Silent>`, `sudo`, `retries?`, `retry_delay?`, `vars: serde_json::Value` (nested)
 - `Step` — `id?`, `name`, `description?`, `action: Action`, `on_success?: Vec<StepRef>`, `on_failure?: Vec<StepRef>`, `on_return?: HashMap<String, Vec<StepRef>>`, `then: Vec<StepRef>`, `meta: StepMeta`
 - `StepRef` — `Id(String)` or `Inline(Box<Step>)`
@@ -39,17 +52,22 @@ src/
   - `Io { op: IoOp }` (`IoOp::Write { level, message, markup }` or `IoOp::Read { read, prompt?, default?, secret }`)
   - `Var { name, source: VarSource }`
 - `VarSource` — `Command { command }`, `From { from: StepRef }`, `To { to: StepRef }`, `File { file: String }`
-- `FsOp` — enum:
-  - `Create { path: Vec<String>, recurse, content? }` (append supported with content)
-  - `Symlink { from, to }`
-  - `Copy { from, to }` (append supported: src appended to dst)
-  - `Move { from, to }`
-  - `Delete { path: Vec<String>, recurse }`
+- `FsOp` — enum; every variant carries `expand: ExpandFlags`:
+  - `Create { path: Vec<String>, recurse, content?, expand }` (append supported with content)
+  - `Symlink { from, to, expand }`
+  - `Copy { from, to, expand }` (append supported: src appended to dst)
+  - `Move { from, to, expand }`
+  - `Delete { path: Vec<String>, recurse, expand }`
+- `ExpandFlags` — `{ from, to, path, contents }`; consts `ALL`, `NONE`, `PATHS` (default). Custom deserialize: `true`/`false` shorthand or object form with PATHS-defaulted missing fields.
 - `Condition` — `Action(skip/overwrite/append/panic)` or `Execute { execute: StepRef }`
 - `GitOnConflict` — `Skip` (default), `Pull`, `Fail`
 - `StepMeta` — `optional`, `fallible`, `sudo`, `silent: Vec<Silent>`, `retries?`, `retry_delay?`
-- `Scope` (in vars.rs) — runtime variable store with dot-path keys; resolves `#` built-ins and `@`-mutables.
-- `VarRef` (in vars.rs) — parsed `{{...}}` expression: `prefix` (#/@/none), `path` (segments), optional `format`.
+- `BundleMeta` (in `bundle.rs`) — `extract_to: ExtractTo`, `cleanup: Cleanup`, `binary: Vec<String>` (globset patterns)
+- `ExtractTo` — `Named(Tmp | Cwd | Home)` or `Custom { path: String }`; default `Named(Tmp)`
+- `Cleanup` — `Always`, `OnSuccess` (default), `Never`
+- `BundleCtx` (runtime) — `root: PathBuf`, `binary: BinaryMatcher` (globset wrapper), `cleanup`, `succeeded: Cell<bool>`, `_temp_dir: Option<tempfile::TempDir>`. `Drop` impl honors the cleanup policy.
+- `Scope` (in `vars.rs`) — runtime variable store with dot-path keys; resolves `#` built-ins (`#timestamp`, `#now`, `#pwd`, `#bundle`) and `@`-mutables. `bundle_root: Option<String>` populated via `set_bundle_root`.
+- `VarRef` (in `vars.rs`) — parsed `{{...}}` expression: `prefix` (#/@/none), `path` (segments), optional `format`.
 
 ## Variable System
 

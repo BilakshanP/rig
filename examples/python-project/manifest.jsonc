@@ -1,15 +1,39 @@
 {
-    "$schema": "../schema.json",
+    "$schema": "../../schema.json",
 
     // Set up a Python project with uv, hatchling, basedpyright, and ruff.
-    // Usage: rig examples/python-project.jsonc --set name=my-tool --set package=my_tool
+    //
+    // Pack into a .rig bundle:
+    //   rig pack examples/python-project -o python-project.rig
+    //
+    // Run the bundle:
+    //   rig python-project.rig --set name=my-tool --set package=my_tool
     //
     // {{name}}    - project/CLI name (kebab-case, e.g. "my-tool")
     // {{package}} - Python package name (snake_case, e.g. "my_tool")
+    //
+    // The template files live on disk under `{{name}}/` in this bundle's
+    // source tree — open them in any editor, they're real text files with
+    // literal {{name}} / {{package}} placeholders that get rendered during
+    // the copy step below.
+    //
+    // Each `fs.copy` reads from `{{#bundle}}/...` (the staging root) and
+    // writes to a cwd-relative destination. To reference the bundle's
+    // templated directory names literally, the manifest uses the `{{{{...}}}}`
+    // escape — it renders to the literal string `{{...}}`, which is the
+    // actual on-disk filename.
 
     "name": "python-project-{{name}}",
     "version": "1.0.0",
     "description": "Bootstrap a Python project with uv + hatchling + basedpyright + ruff",
+
+    "bundle": {
+        // Stage to a tmp dir and clean up after a successful run. Users
+        // debugging a failure can set cleanup to "never" to keep the
+        // staging dir around for inspection.
+        "extract-to": "tmp",
+        "cleanup": "on-success"
+    },
 
     "steps": [
         {
@@ -17,7 +41,7 @@
             "action": { "kind": "io", "level": "info", "message": "Setting up Python project: {{name}}" }
         },
 
-        // -- Create directory structure --
+        // -- Create the output directory structure before copying files --
         {
             "id": "create-dirs",
             "name": "Create project directories",
@@ -35,15 +59,15 @@
             }
         },
 
-        // -- Write config files --
+        // -- Scaffold the project tree from bundled templates --
         {
             "id": "pyproject",
             "name": "Write pyproject.toml",
             "action": {
                 "kind": "fs",
-                "create": {
-                    "path": "{{name}}/pyproject.toml",
-                    "content": "[project]\nname = \"{{name}}\"\nversion = \"0.1.0\"\ndescription = \"\"\nrequires-python = \">=3.14\"\ndependencies = []\n\n[project.scripts]\n{{name}} = \"{{package}}.cli:main\"\n\n[build-system]\nrequires = [\"hatchling\"]\nbuild-backend = \"hatchling.build\"\n\n[tool.hatch.build.targets.wheel]\npackages = [\"src/{{package}}\"]\n\n[dependency-groups]\ndev = [\n    \"basedpyright>=1.39.2\",\n    \"ruff>=0.15.11\",\n]\n"
+                "copy": {
+                    "from": "{{#bundle}}/{{{{name}}}}/pyproject.toml",
+                    "to":   "{{name}}/pyproject.toml"
                 },
                 "if-exists": "skip"
             }
@@ -53,9 +77,9 @@
             "name": "Write pyrightconfig.json",
             "action": {
                 "kind": "fs",
-                "create": {
-                    "path": "{{name}}/pyrightconfig.json",
-                    "content": "{\n  \"include\": [\"src\"],\n  \"venvPath\": \".\",\n  \"venv\": \".venv\",\n  \"typeCheckingMode\": \"basic\"\n}\n"
+                "copy": {
+                    "from": "{{#bundle}}/{{{{name}}}}/pyrightconfig.json",
+                    "to":   "{{name}}/pyrightconfig.json"
                 },
                 "if-exists": "skip"
             }
@@ -65,9 +89,9 @@
             "name": "Write .python-version",
             "action": {
                 "kind": "fs",
-                "create": {
-                    "path": "{{name}}/.python-version",
-                    "content": "3.14\n"
+                "copy": {
+                    "from": "{{#bundle}}/{{{{name}}}}/.python-version",
+                    "to":   "{{name}}/.python-version"
                 },
                 "if-exists": "skip"
             }
@@ -77,75 +101,69 @@
             "name": "Write .gitignore",
             "action": {
                 "kind": "fs",
-                "create": {
-                    "path": "{{name}}/.gitignore",
-                    "content": "# Python-generated files\n__pycache__/\n*.py[oc]\nbuild/\ndist/\nwheels/\n*.egg-info\n\n# Virtual environments\n.venv\n"
+                "copy": {
+                    "from": "{{#bundle}}/{{{{name}}}}/.gitignore",
+                    "to":   "{{name}}/.gitignore"
                 },
                 "if-exists": "skip"
             }
         },
-
-        // -- Write source files --
         {
             "id": "init",
-            "name": "Write __init__.py",
+            "name": "Write src/{{package}}/__init__.py",
             "action": {
                 "kind": "fs",
-                "create": {
-                    "path": "{{name}}/src/{{package}}/__init__.py",
-                    "content": ""
+                "copy": {
+                    "from": "{{#bundle}}/{{{{name}}}}/src/{{{{package}}}}/__init__.py",
+                    "to":   "{{name}}/src/{{package}}/__init__.py"
                 },
                 "if-exists": "skip"
             }
         },
         {
             "id": "main",
-            "name": "Write __main__.py",
+            "name": "Write src/{{package}}/__main__.py",
             "action": {
                 "kind": "fs",
-                "create": {
-                    "path": "{{name}}/src/{{package}}/__main__.py",
-                    "content": "from {{package}}.cli import main\n\nmain()\n"
+                "copy": {
+                    "from": "{{#bundle}}/{{{{name}}}}/src/{{{{package}}}}/__main__.py",
+                    "to":   "{{name}}/src/{{package}}/__main__.py"
                 },
                 "if-exists": "skip"
             }
         },
         {
             "id": "cli",
-            "name": "Write cli.py",
+            "name": "Write src/{{package}}/cli.py",
             "action": {
                 "kind": "fs",
-                "create": {
-                    "path": "{{name}}/src/{{package}}/cli.py",
-                    "content": "import argparse\n\n\ndef main() -> None:\n    parser = argparse.ArgumentParser(description=\"{{name}}\")\n    _ = parser.parse_args()\n    print(\"Hello from {{name}}!\")\n"
+                "copy": {
+                    "from": "{{#bundle}}/{{{{name}}}}/src/{{{{package}}}}/cli.py",
+                    "to":   "{{name}}/src/{{package}}/cli.py"
                 },
                 "if-exists": "skip"
             }
         },
-
-        // -- Write test file --
         {
             "id": "test",
-            "name": "Write test stub",
+            "name": "Write tests/test_cli.py",
             "action": {
                 "kind": "fs",
-                "create": {
-                    "path": "{{name}}/tests/test_cli.py",
-                    "content": "import unittest\n\n\nclass TestCli(unittest.TestCase):\n    def test_import(self) -> None:\n        import {{package}}.cli\n        self.assertTrue(hasattr({{package}}.cli, \"main\"))\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n"
+                "copy": {
+                    "from": "{{#bundle}}/{{{{name}}}}/tests/test_cli.py",
+                    "to":   "{{name}}/tests/test_cli.py"
                 },
                 "if-exists": "skip"
             }
         },
-
-        // -- Write CI workflow --
         {
             "id": "ci",
-            "name": "Write GitHub Actions CI",
+            "name": "Write .github/workflows/ci.yml",
             "action": {
                 "kind": "fs",
-                "create": {
-                    "path": "{{name}}/.github/workflows/ci.yml",
-                    "content": "name: CI\n\non:\n  push:\n    branches: [main]\n  pull_request:\n    branches: [main]\n\njobs:\n  check:\n    runs-on: ubuntu-latest\n    permissions:\n      contents: write\n    steps:\n      - uses: actions/checkout@v4\n\n      - uses: astral-sh/setup-uv@v6\n\n      - run: uv sync --dev\n\n      - name: Format & lint fix\n        run: |\n          uv run ruff format src/\n          uv run ruff check --fix src/\n\n      - name: Commit formatting changes\n        uses: stefanzweifel/git-auto-commit-action@v5\n        with:\n          commit_message: \"Formatted: code with ruff\"\n\n      - run: uv run basedpyright\n"
+                "copy": {
+                    "from": "{{#bundle}}/{{{{name}}}}/.github/workflows/ci.yml",
+                    "to":   "{{name}}/.github/workflows/ci.yml"
                 },
                 "if-exists": "skip"
             }
