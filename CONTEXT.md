@@ -98,6 +98,10 @@ rig <config-file> --dry-run      # Full audit: shows all steps, meta, conditions
 rig <config-file> --verbose      # Show suppressed output
 rig <config-file> --only <id>    # Run a single step by ID
 rig <config-file> --validate     # Parse and validate without executing
+rig <config-file> --list         # One-line summary of all steps
+rig <config-file> --describe <id>          # Describe a step in detail
+rig <config-file> --describe <id> --depth  # Expand sub-steps recursively
+rig <config-file> --describe <id> --depth 2  # Expand up to 2 levels
 ```
 
 `<config-file>` can be a local path or a URL (`http://` / `https://`).
