@@ -5,14 +5,13 @@ mod style;
 
 use clap::Parser;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::process::ExitCode;
 
 #[derive(Parser)]
 #[command(name = "rig", about = "Bootstrap dev environments from a JSON config")]
 struct Cli {
-    /// Path to the JSON config file
-    config: PathBuf,
+    /// Path or URL to the JSON config file
+    config: String,
     /// Print what would happen without executing
     #[arg(long)]
     dry_run: bool,
@@ -30,6 +29,19 @@ struct Cli {
     vars: Vec<String>,
 }
 
+fn fetch_url(url: &str) -> Result<std::path::PathBuf, String> {
+    let body = ureq::get(url)
+        .call()
+        .map_err(|e| format!("failed to fetch {url}: {e}"))?
+        .body_mut()
+        .read_to_string()
+        .map_err(|e| format!("failed to read response: {e}"))?;
+    let tmp = std::env::temp_dir().join("rig-remote-config.jsonc");
+    std::fs::write(&tmp, body.as_bytes())
+        .map_err(|e| format!("failed to write temp file: {e}"))?;
+    Ok(tmp)
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
@@ -38,7 +50,22 @@ fn main() -> ExitCode {
         Some((k.to_string(), v.to_string()))
     }).collect();
 
-    let cfg = match config::parse_config(cli.config.to_str().unwrap_or_default(), &vars) {
+    let (config_path, _tmp) = if cli.config.starts_with("http://") || cli.config.starts_with("https://") {
+        match fetch_url(&cli.config) {
+            Ok(p) => {
+                let s = p.to_string_lossy().into_owned();
+                (s, Some(p))
+            }
+            Err(e) => {
+                eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
+                return ExitCode::FAILURE;
+            }
+        }
+    } else {
+        (cli.config.clone(), None)
+    };
+
+    let cfg = match config::parse_config(&config_path, &vars) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));

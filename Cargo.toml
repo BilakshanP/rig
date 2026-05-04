@@ -9,6 +9,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 json_comments = "0.2.2"
 chrono = "0.4.41"
+ureq = "3.0.11"
 aml = { git = "https://github.com/BilakshanP/aml.git" }
 
 [dev-dependencies]
