@@ -10,9 +10,42 @@
         "version": { "type": "string" },
         "description": { "type": "string" },
         "meta": { "$ref": "#/definitions/config_meta" },
+        "bundle": { "$ref": "#/definitions/bundle_meta" },
         "steps": { "type": "array", "items": { "$ref": "#/definitions/step" } }
     },
     "definitions": {
+        "bundle_meta": {
+            "type": "object",
+            "description": "Bundle-specific settings, used when the manifest ships inside a .rig archive",
+            "additionalProperties": false,
+            "properties": {
+                "extract-to": {
+                    "description": "Where to extract the bundle before running (default: tmp)",
+                    "oneOf": [
+                        { "type": "string", "enum": ["tmp", "cwd", "home"] },
+                        {
+                            "type": "object",
+                            "required": ["path"],
+                            "additionalProperties": false,
+                            "properties": {
+                                "path": { "type": "string", "description": "Explicit extraction path (~ expanded)" }
+                            }
+                        }
+                    ]
+                },
+                "cleanup": {
+                    "type": "string",
+                    "enum": ["always", "on-success", "never"],
+                    "default": "on-success",
+                    "description": "When to delete the staging directory: always, only on success, or never"
+                },
+                "binary": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Glob patterns (relative to bundle root) for files copied byte-for-byte (no {{...}} substitution in contents)"
+                }
+            }
+        },
         "config_meta": {
             "type": "object",
             "description": "Top-level execution defaults",
@@ -191,7 +224,8 @@
                         "content": {
                             "type": "string",
                             "description": "Inline content to write (files only)"
-                        }
+                        },
+                        "expand": { "$ref": "#/definitions/expand" }
                     }
                 },
                 "if-exists": { "$ref": "#/definitions/condition" },
@@ -207,7 +241,8 @@
                     "required": ["from", "to"],
                     "properties": {
                         "from": { "type": "string" },
-                        "to": { "type": "string" }
+                        "to": { "type": "string" },
+                        "expand": { "$ref": "#/definitions/expand" }
                     }
                 },
                 "if-exists": { "$ref": "#/definitions/condition" }
@@ -222,7 +257,8 @@
                     "required": ["from", "to"],
                     "properties": {
                         "from": { "type": "string" },
-                        "to": { "type": "string" }
+                        "to": { "type": "string" },
+                        "expand": { "$ref": "#/definitions/expand" }
                     }
                 },
                 "if-exists": { "$ref": "#/definitions/condition" },
@@ -238,7 +274,8 @@
                     "required": ["from", "to"],
                     "properties": {
                         "from": { "type": "string" },
-                        "to": { "type": "string" }
+                        "to": { "type": "string" },
+                        "expand": { "$ref": "#/definitions/expand" }
                     }
                 },
                 "if-exists": { "$ref": "#/definitions/condition" },
@@ -254,7 +291,8 @@
                     "required": ["path"],
                     "properties": {
                         "path": { "$ref": "#/definitions/path_spec" },
-                        "recurse": { "type": "boolean", "default": false }
+                        "recurse": { "type": "boolean", "default": false },
+                        "expand": { "$ref": "#/definitions/expand" }
                     }
                 },
                 "if-not-exists": { "$ref": "#/definitions/condition" }
@@ -311,6 +349,22 @@
                 { "type": "array", "items": { "type": "string" } }
             ],
             "description": "Path or array of paths. Trailing / = directory."
+        },
+        "expand": {
+            "description": "Control {{var}} substitution on path components and file contents for this fs action. Defaults to false (no substitution) to preserve byte-exact behavior outside bundles. Shorthand `true` enables all fields; `false` disables all.",
+            "oneOf": [
+                { "type": "boolean" },
+                {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "from":     { "type": "boolean", "default": false, "description": "Substitute {{...}} in the `from` path (copy/symlink/move)" },
+                        "to":       { "type": "boolean", "default": false, "description": "Substitute {{...}} in the `to` path (copy/symlink/move/create)" },
+                        "path":     { "type": "boolean", "default": false, "description": "Substitute {{...}} in the `path` field (create/delete)" },
+                        "contents": { "type": "boolean", "default": false, "description": "Substitute {{...}} in file contents during fs.copy (only meaningful when running from a bundle)" }
+                    }
+                }
+            ]
         },
         "condition": {
             "oneOf": [

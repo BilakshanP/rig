@@ -38,6 +38,10 @@ pub struct Runner {
     pub verbose: bool,
     pub config_meta: Meta,
     pub scope: RefCell<crate::vars::Scope>,
+    /// Present when we're running from a `.rig` bundle: carries the staging
+    /// root + binary matcher + cleanup policy so `fs.copy` can render file
+    /// contents when the source lives inside the bundle.
+    pub bundle: Option<crate::bundle::BundleCtx>,
     log_file: RefCell<Option<std::fs::File>>,
     entry_counts: RefCell<HashMap<String, u32>>,
 }
@@ -49,6 +53,31 @@ impl Runner {
         verbose: bool,
         config_meta: Meta,
         scope: crate::vars::Scope,
+    ) -> Self {
+        Self::new_inner(index, dry_run, verbose, config_meta, scope, None)
+    }
+
+    /// Construct a runner that knows it's executing a `.rig` bundle — passes
+    /// through the staging context so `fs.copy` can render templated file
+    /// contents.
+    pub fn new_with_bundle(
+        index: HashMap<String, Step>,
+        dry_run: bool,
+        verbose: bool,
+        config_meta: Meta,
+        scope: crate::vars::Scope,
+        bundle: crate::bundle::BundleCtx,
+    ) -> Self {
+        Self::new_inner(index, dry_run, verbose, config_meta, scope, Some(bundle))
+    }
+
+    fn new_inner(
+        index: HashMap<String, Step>,
+        dry_run: bool,
+        verbose: bool,
+        config_meta: Meta,
+        scope: crate::vars::Scope,
+        bundle: Option<crate::bundle::BundleCtx>,
     ) -> Self {
         let log_file = if !dry_run {
             config_meta.log.as_ref().and_then(|p| {
@@ -62,6 +91,7 @@ impl Runner {
         Self {
             index, dry_run, verbose, config_meta,
             scope: RefCell::new(scope),
+            bundle,
             log_file: RefCell::new(log_file),
             entry_counts: RefCell::new(HashMap::new()),
         }
@@ -186,6 +216,17 @@ impl Runner {
     /// Substitute runtime vars in a string using the current scope.
     pub fn subst(&self, s: &str) -> String {
         self.scope.borrow().substitute(s)
+    }
+
+    /// Conditionally substitute: when `enabled` is true this is `subst`, else
+    /// an owned copy of `s`. Used to honor per-field `expand` flags on fs
+    /// actions.
+    fn expand_s(&self, enabled: bool, s: &str) -> String {
+        if enabled {
+            self.subst(s)
+        } else {
+            s.to_string()
+        }
     }
 
     fn exec_action(&self, action: &Action, meta: &StepMeta, indent: &str, _depth: usize) -> Result<i32, ExecError> {
@@ -567,19 +608,21 @@ impl Runner {
 
     fn exec_fs(&self, op: &FsOp, if_exists: Option<&Condition>, if_not_exists: Option<&Condition>, indent: &str) -> Result<(), ExecError> {
         match op {
-            FsOp::Create { path, recurse, content } => self.fs_create(path, *recurse, content.as_deref(), if_exists, indent),
-            FsOp::Symlink { from, to } => self.fs_symlink(from, to, if_exists, indent),
-            FsOp::Copy { from, to } => self.fs_copy(from, to, if_exists, if_not_exists, indent),
-            FsOp::Move { from, to } => self.fs_move(from, to, if_exists, if_not_exists, indent),
-            FsOp::Delete { path, recurse } => self.fs_delete(path, *recurse, if_not_exists, indent),
+            FsOp::Create { path, recurse, content, expand } => self.fs_create(path, *recurse, content.as_deref(), *expand, if_exists, indent),
+            FsOp::Symlink { from, to, expand } => self.fs_symlink(from, to, *expand, if_exists, indent),
+            FsOp::Copy { from, to, expand } => self.fs_copy(from, to, *expand, if_exists, if_not_exists, indent),
+            FsOp::Move { from, to, expand } => self.fs_move(from, to, *expand, if_exists, if_not_exists, indent),
+            FsOp::Delete { path, recurse, expand } => self.fs_delete(path, *recurse, *expand, if_not_exists, indent),
         }
     }
 
-    fn fs_create(&self, path: &[String], recurse: bool, content: Option<&str>, if_exists: Option<&Condition>, indent: &str) -> Result<(), ExecError> {
+    fn fs_create(&self, path: &[String], recurse: bool, content: Option<&str>, expand: ExpandFlags, if_exists: Option<&Condition>, indent: &str) -> Result<(), ExecError> {
         for p in path {
-            let p = self.subst(p);
+            let p = self.expand_s(expand.path, p);
             let full = expand_tilde(&p);
             let is_dir = p.ends_with('/');
+            // Inline `content` rendering still follows the legacy behavior
+            // (always substituted); bundles never go through this branch.
             let content_resolved = content.map(|c| self.subst(c));
             let content = content_resolved.as_deref();
             if self.dry_run {
@@ -624,9 +667,9 @@ impl Runner {
         Ok(())
     }
 
-    fn fs_symlink(&self, from: &str, to: &str, if_exists: Option<&Condition>, indent: &str) -> Result<(), ExecError> {
-        let from = self.subst(from);
-        let to = self.subst(to);
+    fn fs_symlink(&self, from: &str, to: &str, expand: ExpandFlags, if_exists: Option<&Condition>, indent: &str) -> Result<(), ExecError> {
+        let from = self.expand_s(expand.from, from);
+        let to = self.expand_s(expand.to, to);
         let src = expand_tilde(&from);
         let dst = expand_tilde(&to);
         if self.dry_run {
@@ -646,13 +689,14 @@ impl Runner {
         Ok(())
     }
 
-    fn fs_copy(&self, from: &str, to: &str, if_exists: Option<&Condition>, if_not_exists: Option<&Condition>, indent: &str) -> Result<(), ExecError> {
-        let from = self.subst(from);
-        let to = self.subst(to);
+    fn fs_copy(&self, from: &str, to: &str, expand: ExpandFlags, if_exists: Option<&Condition>, if_not_exists: Option<&Condition>, indent: &str) -> Result<(), ExecError> {
+        let from = self.expand_s(expand.from, from);
+        let to = self.expand_s(expand.to, to);
         let src = expand_tilde(&from);
         let dst = expand_tilde(&to);
         if self.dry_run {
-            println!("{indent}  [dry-run] copy {} -> {}", src.display(), dst.display());
+            let mode = self.copy_mode_label(&src, expand.contents);
+            println!("{indent}  [dry-run] copy {} -> {} {mode}", src.display(), dst.display());
             return Ok(());
         }
         if !src.exists() { return self.handle_not_exists(if_not_exists, &src, indent); }
@@ -665,12 +709,30 @@ impl Runner {
                 CondResult::Panic => return Err(ExecError::Command(format!("already exists: {}", dst.display()))),
             }
         }
+
+        // Determine whether to render `{{...}}` in file contents.
+        //
+        // Rules (see Task 8 plan):
+        // - Outside a bundle: never render (legacy byte-exact copy).
+        // - Inside a bundle, src inside the staging root:
+        //     - binary-glob match  → byte-exact
+        //     - `expand.contents`  → render (explicit user request)
+        //     - otherwise          → render (the point of bundles is templated content)
+        // - Inside a bundle, src outside the staging root: byte-exact (treat as
+        //   a normal filesystem copy).
+        let render_contents = self.should_render_contents(&src, expand.contents);
+
         if append_mode {
             use std::io::Write;
-            let src_data = std::fs::read(&src)?;
+            let bytes = self.read_for_copy(&src, render_contents)?;
             let mut f = std::fs::OpenOptions::new().append(true).open(&dst)?;
-            f.write_all(&src_data)?;
-            println!("{indent}  {}", style::render(&format!("<fg>appended</f> {} -> {}", src.display(), dst.display())));
+            f.write_all(&bytes)?;
+            let tag = if render_contents { " (rendered)" } else { "" };
+            println!("{indent}  {}", style::render(&format!("<fg>appended{tag}</f> {} -> {}", src.display(), dst.display())));
+        } else if render_contents {
+            let bytes = self.read_for_copy(&src, true)?;
+            std::fs::write(&dst, &bytes)?;
+            println!("{indent}  {}", style::render(&format!("<fg>copied (rendered)</f> {} -> {}", src.display(), dst.display())));
         } else {
             std::fs::copy(&src, &dst)?;
             println!("{indent}  {}", style::render(&format!("<fg>copied</f> {} -> {}", src.display(), dst.display())));
@@ -678,9 +740,58 @@ impl Runner {
         Ok(())
     }
 
-    fn fs_move(&self, from: &str, to: &str, if_exists: Option<&Condition>, if_not_exists: Option<&Condition>, indent: &str) -> Result<(), ExecError> {
-        let from = self.subst(from);
-        let to = self.subst(to);
+    /// Decide whether to apply variable substitution to the contents of `src`
+    /// during an `fs.copy`.
+    ///
+    /// See the rule table in `fs_copy` for the semantics.
+    fn should_render_contents(&self, src: &std::path::Path, contents_flag: bool) -> bool {
+        let Some(ctx) = self.bundle.as_ref() else {
+            return false; // No bundle → legacy byte-exact copy.
+        };
+        let Some(rel) = src.strip_prefix(&ctx.root).ok() else {
+            return false; // src lives outside the bundle; treat as normal fs.
+        };
+        if ctx.binary.matches(rel) {
+            return false;
+        }
+        // Inside the bundle + not binary → render. `contents_flag` can only
+        // force it on (the default is already "yes" inside a bundle).
+        // When contents_flag is explicitly false via `expand: false` shorthand
+        // or `expand: {contents: false}` this still returns true unless the
+        // file is binary-matched; users who need byte-exact bundles should
+        // list the path in `bundle.binary`.
+        let _ = contents_flag;
+        true
+    }
+
+    /// Read `src` as bytes, optionally rendering `{{...}}` through the current
+    /// scope. When rendering is requested but the file is not valid UTF-8,
+    /// we fall back to raw bytes (prevents corrupting a file that slipped
+    /// through the binary-glob filter).
+    fn read_for_copy(&self, src: &std::path::Path, render: bool) -> Result<Vec<u8>, ExecError> {
+        let raw = std::fs::read(src)?;
+        if !render {
+            return Ok(raw);
+        }
+        match std::str::from_utf8(&raw) {
+            Ok(text) => Ok(self.subst(text).into_bytes()),
+            Err(_) => Ok(raw), // not UTF-8; safest to copy verbatim
+        }
+    }
+
+    /// Short dry-run label describing how a copy will proceed (rendered vs
+    /// byte-exact) — used only in `[dry-run]` output.
+    fn copy_mode_label(&self, src: &std::path::Path, contents_flag: bool) -> &'static str {
+        if self.should_render_contents(src, contents_flag) {
+            "(rendered)"
+        } else {
+            ""
+        }
+    }
+
+    fn fs_move(&self, from: &str, to: &str, expand: ExpandFlags, if_exists: Option<&Condition>, if_not_exists: Option<&Condition>, indent: &str) -> Result<(), ExecError> {
+        let from = self.expand_s(expand.from, from);
+        let to = self.expand_s(expand.to, to);
         let src = expand_tilde(&from);
         let dst = expand_tilde(&to);
         if self.dry_run {
@@ -701,9 +812,9 @@ impl Runner {
         Ok(())
     }
 
-    fn fs_delete(&self, path: &[String], recurse: bool, if_not_exists: Option<&Condition>, indent: &str) -> Result<(), ExecError> {
+    fn fs_delete(&self, path: &[String], recurse: bool, expand: ExpandFlags, if_not_exists: Option<&Condition>, indent: &str) -> Result<(), ExecError> {
         for p in path {
-            let p = self.subst(p);
+            let p = self.expand_s(expand.path, p);
             let full = expand_tilde(&p);
             if self.dry_run {
                 println!("{indent}  [dry-run] delete: {}", full.display());
@@ -815,20 +926,31 @@ impl Runner {
             }
             Action::Fs { op, if_exists, if_not_exists } => {
                 match op {
-                    FsOp::Create { path, recurse, content } => {
+                    FsOp::Create { path, recurse, content, expand } => {
                         for p in path {
                             let kind = if p.ends_with('/') { "dir" } else { "file" };
                             println!("{ai}{}", style::render(&format!("<md>create {kind}:</m> {p}")));
                         }
                         if *recurse { println!("{ai}{}", style::render("<md>recurse:</m> true")); }
                         if let Some(c) = content { println!("{ai}{}", style::render(&format!("<md>content:</m> {c:?}"))); }
+                        if let Some(label) = expand_label(expand) { println!("{ai}{}", style::render(&format!("<md>expand:</m> {label}"))); }
                     }
-                    FsOp::Symlink { from, to } => println!("{ai}{}", style::render(&format!("<md>symlink</m> {from} -> {to}"))),
-                    FsOp::Copy { from, to } => println!("{ai}{}", style::render(&format!("<md>copy</m> {from} -> {to}"))),
-                    FsOp::Move { from, to } => println!("{ai}{}", style::render(&format!("<md>move</m> {from} -> {to}"))),
-                    FsOp::Delete { path, recurse } => {
+                    FsOp::Symlink { from, to, expand } => {
+                        println!("{ai}{}", style::render(&format!("<md>symlink</m> {from} -> {to}")));
+                        if let Some(label) = expand_label(expand) { println!("{ai}{}", style::render(&format!("<md>expand:</m> {label}"))); }
+                    }
+                    FsOp::Copy { from, to, expand } => {
+                        println!("{ai}{}", style::render(&format!("<md>copy</m> {from} -> {to}")));
+                        if let Some(label) = expand_label(expand) { println!("{ai}{}", style::render(&format!("<md>expand:</m> {label}"))); }
+                    }
+                    FsOp::Move { from, to, expand } => {
+                        println!("{ai}{}", style::render(&format!("<md>move</m> {from} -> {to}")));
+                        if let Some(label) = expand_label(expand) { println!("{ai}{}", style::render(&format!("<md>expand:</m> {label}"))); }
+                    }
+                    FsOp::Delete { path, recurse, expand } => {
                         for p in path { println!("{ai}{}", style::render(&format!("<md>delete:</m> {p}"))); }
                         if *recurse { println!("{ai}{}", style::render("<md>recurse:</m> true")); }
+                        if let Some(label) = expand_label(expand) { println!("{ai}{}", style::render(&format!("<md>expand:</m> {label}"))); }
                     }
                 }
                 if let Some(c) = if_exists { println!("{ai}{}", style::render(&format!("<md>if-exists:</m> {}", condition_label(c)))); }
@@ -912,6 +1034,28 @@ fn condition_label(c: &Condition) -> String {
     }
 }
 
+/// Format an ExpandFlags into a compact description suitable for --dry-run /
+/// --describe output. Returns None when the flags match the PATHS default
+/// (paths substituted, contents byte-exact), so we don't clutter the audit
+/// with the implicit common case.
+fn expand_label(flags: &ExpandFlags) -> Option<String> {
+    if *flags == ExpandFlags::PATHS {
+        return None;
+    }
+    if *flags == ExpandFlags::NONE {
+        return Some("none (byte-exact)".into());
+    }
+    if *flags == ExpandFlags::ALL {
+        return Some("all".into());
+    }
+    let mut parts = Vec::new();
+    if flags.from { parts.push("from"); }
+    if flags.to { parts.push("to"); }
+    if flags.path { parts.push("path"); }
+    if flags.contents { parts.push("contents"); }
+    Some(parts.join(", "))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -974,7 +1118,7 @@ mod tests {
         let step = Step {
             id: None, name: "create".into(), description: None,
             action: Action::Fs {
-                op: FsOp::Create { path: vec![path_str], recurse: false, content: None },
+                op: FsOp::Create { path: vec![path_str], recurse: false, content: None, expand: ExpandFlags::NONE },
                 if_exists: None, if_not_exists: None,
             },
             on_success: None, on_failure: None, on_return: None,
@@ -991,7 +1135,7 @@ mod tests {
         let step = Step {
             id: None, name: "create".into(), description: None,
             action: Action::Fs {
-                op: FsOp::Create { path: vec![target.to_string_lossy().into()], recurse: false, content: None },
+                op: FsOp::Create { path: vec![target.to_string_lossy().into()], recurse: false, content: None, expand: ExpandFlags::NONE },
                 if_exists: None, if_not_exists: None,
             },
             on_success: None, on_failure: None, on_return: None,
@@ -1008,7 +1152,7 @@ mod tests {
         let step = Step {
             id: None, name: "create".into(), description: None,
             action: Action::Fs {
-                op: FsOp::Create { path: vec![target.to_string_lossy().into()], recurse: false, content: Some("hello world".into()) },
+                op: FsOp::Create { path: vec![target.to_string_lossy().into()], recurse: false, content: Some("hello world".into()), expand: ExpandFlags::NONE },
                 if_exists: None, if_not_exists: None,
             },
             on_success: None, on_failure: None, on_return: None,
@@ -1026,7 +1170,7 @@ mod tests {
         let step = Step {
             id: None, name: "append".into(), description: None,
             action: Action::Fs {
-                op: FsOp::Create { path: vec![target.to_string_lossy().into()], recurse: false, content: Some("new line\n".into()) },
+                op: FsOp::Create { path: vec![target.to_string_lossy().into()], recurse: false, content: Some("new line\n".into()), expand: ExpandFlags::NONE },
                 if_exists: Some(Condition::Action(ConditionAction::Append)), if_not_exists: None,
             },
             on_success: None, on_failure: None, on_return: None,
@@ -1046,7 +1190,7 @@ mod tests {
         let step = Step {
             id: None, name: "append".into(), description: None,
             action: Action::Fs {
-                op: FsOp::Copy { from: src.to_string_lossy().into(), to: dst.to_string_lossy().into() },
+                op: FsOp::Copy { from: src.to_string_lossy().into(), to: dst.to_string_lossy().into(), expand: ExpandFlags::NONE },
                 if_exists: Some(Condition::Action(ConditionAction::Append)), if_not_exists: None,
             },
             on_success: None, on_failure: None, on_return: None,
@@ -1065,7 +1209,7 @@ mod tests {
         let step = Step {
             id: None, name: "link".into(), description: None,
             action: Action::Fs {
-                op: FsOp::Symlink { from: src.to_string_lossy().into(), to: dst.to_string_lossy().into() },
+                op: FsOp::Symlink { from: src.to_string_lossy().into(), to: dst.to_string_lossy().into(), expand: ExpandFlags::NONE },
                 if_exists: None, if_not_exists: None,
             },
             on_success: None, on_failure: None, on_return: None,
@@ -1085,7 +1229,7 @@ mod tests {
         let step = Step {
             id: None, name: "copy".into(), description: None,
             action: Action::Fs {
-                op: FsOp::Copy { from: src.to_string_lossy().into(), to: dst.to_string_lossy().into() },
+                op: FsOp::Copy { from: src.to_string_lossy().into(), to: dst.to_string_lossy().into(), expand: ExpandFlags::NONE },
                 if_exists: None, if_not_exists: Some(Condition::Action(ConditionAction::Panic)),
             },
             on_success: None, on_failure: None, on_return: None,
@@ -1104,7 +1248,7 @@ mod tests {
         let step = Step {
             id: None, name: "mv".into(), description: None,
             action: Action::Fs {
-                op: FsOp::Move { from: src.to_string_lossy().into(), to: dst.to_string_lossy().into() },
+                op: FsOp::Move { from: src.to_string_lossy().into(), to: dst.to_string_lossy().into(), expand: ExpandFlags::NONE },
                 if_exists: None, if_not_exists: None,
             },
             on_success: None, on_failure: None, on_return: None,
@@ -1123,7 +1267,7 @@ mod tests {
         let step = Step {
             id: None, name: "del".into(), description: None,
             action: Action::Fs {
-                op: FsOp::Delete { path: vec![f.to_string_lossy().into()], recurse: false },
+                op: FsOp::Delete { path: vec![f.to_string_lossy().into()], recurse: false, expand: ExpandFlags::NONE },
                 if_exists: None, if_not_exists: None,
             },
             on_success: None, on_failure: None, on_return: None,
@@ -1138,13 +1282,238 @@ mod tests {
         let step = Step {
             id: None, name: "del".into(), description: None,
             action: Action::Fs {
-                op: FsOp::Delete { path: vec!["/tmp/nonexistent_rig_test".into()], recurse: false },
+                op: FsOp::Delete { path: vec!["/tmp/nonexistent_rig_test".into()], recurse: false, expand: ExpandFlags::NONE },
                 if_exists: None, if_not_exists: Some(Condition::Action(ConditionAction::Skip)),
             },
             on_success: None, on_failure: None, on_return: None,
             then: vec![], meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
+    }
+
+    #[test]
+    fn fs_copy_expand_false_preserves_literal_braces() {
+        // A bundle-style path with a literal `{{name}}` segment. With
+        // `expand: false` on both sides, the path is used byte-exact and
+        // {{name}} is NOT looked up in the scope.
+        let dir = tempfile::tempdir().unwrap();
+        let src_dir = dir.path().join("{{name}}");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        let src = src_dir.join("file.txt");
+        std::fs::write(&src, "hi").unwrap();
+
+        let dst_dir = dir.path().join("out");
+        std::fs::create_dir_all(&dst_dir).unwrap();
+        let dst = dst_dir.join("{{name}}.txt");
+
+        let step = Step {
+            id: None, name: "copy-literal".into(), description: None,
+            action: Action::Fs {
+                op: FsOp::Copy {
+                    from: src.to_string_lossy().into(),
+                    to: dst.to_string_lossy().into(),
+                    expand: ExpandFlags::NONE,
+                },
+                if_exists: None, if_not_exists: None,
+            },
+            on_success: None, on_failure: None, on_return: None,
+            then: vec![], meta: StepMeta::default(),
+        };
+
+        // Set a `name` var so we'd notice if substitution leaked.
+        let mut scope = crate::vars::Scope::default();
+        scope.set("name", "WRONG".into());
+        let r = Runner::new(HashMap::new(), false, false, Meta::default(), scope);
+        r.run_step(&step, 0).unwrap();
+
+        // The literal destination with `{{name}}.txt` should exist.
+        assert!(dst.is_file());
+        assert_eq!(std::fs::read_to_string(&dst).unwrap(), "hi");
+        // And nothing under `out/WRONG.txt` should have been created.
+        assert!(!dst_dir.join("WRONG.txt").exists());
+    }
+
+    #[test]
+    fn fs_copy_default_expands_path_vars() {
+        // Default behavior (ExpandFlags::PATHS) keeps legacy substitution on
+        // path fields, so {{name}} gets rendered.
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src.txt");
+        std::fs::write(&src, "payload").unwrap();
+        let dst_template = format!("{}/{{{{name}}}}.txt", dir.path().display());
+
+        let step = Step {
+            id: None, name: "copy-default".into(), description: None,
+            action: Action::Fs {
+                op: FsOp::Copy {
+                    from: src.to_string_lossy().into(),
+                    to: dst_template,
+                    expand: ExpandFlags::default(),
+                },
+                if_exists: None, if_not_exists: None,
+            },
+            on_success: None, on_failure: None, on_return: None,
+            then: vec![], meta: StepMeta::default(),
+        };
+
+        let mut scope = crate::vars::Scope::default();
+        scope.set("name", "resolved".into());
+        let r = Runner::new(HashMap::new(), false, false, Meta::default(), scope);
+        r.run_step(&step, 0).unwrap();
+
+        assert!(dir.path().join("resolved.txt").is_file());
+    }
+
+    /// Construct a BundleCtx rooted at `dir` with the given binary globs.
+    fn bundle_ctx_at(dir: &std::path::Path, binary: &[&str]) -> crate::bundle::BundleCtx {
+        let patterns: Vec<String> = binary.iter().map(|s| s.to_string()).collect();
+        crate::bundle::BundleCtx {
+            root: dir.to_path_buf(),
+            binary: crate::bundle::BinaryMatcher::new(&patterns).unwrap(),
+            cleanup: crate::bundle::Cleanup::Never,
+            succeeded: std::cell::Cell::new(false),
+            _temp_dir: None,
+        }
+    }
+
+    #[test]
+    fn fs_copy_in_bundle_renders_templated_contents() {
+        let bundle_dir = tempfile::tempdir().unwrap();
+        // source lives inside the bundle root; contents contain {{name}}
+        let src = bundle_dir.path().join("greet.txt");
+        std::fs::write(&src, "hello {{name}}\n").unwrap();
+        let out = tempfile::tempdir().unwrap();
+        let dst = out.path().join("out.txt");
+
+        let step = Step {
+            id: None, name: "copy".into(), description: None,
+            action: Action::Fs {
+                op: FsOp::Copy {
+                    from: src.to_string_lossy().into(),
+                    to: dst.to_string_lossy().into(),
+                    expand: ExpandFlags::default(), // contents:false, yet bundle rule overrides
+                },
+                if_exists: None, if_not_exists: None,
+            },
+            on_success: None, on_failure: None, on_return: None,
+            then: vec![], meta: StepMeta::default(),
+        };
+
+        let mut scope = crate::vars::Scope::default();
+        scope.set("name", "bundle".into());
+        let r = Runner::new_with_bundle(
+            HashMap::new(),
+            false,
+            false,
+            Meta::default(),
+            scope,
+            bundle_ctx_at(bundle_dir.path(), &[]),
+        );
+        r.run_step(&step, 0).unwrap();
+        assert_eq!(std::fs::read_to_string(&dst).unwrap(), "hello bundle\n");
+    }
+
+    #[test]
+    fn fs_copy_in_bundle_binary_glob_stays_byte_exact() {
+        let bundle_dir = tempfile::tempdir().unwrap();
+        let src = bundle_dir.path().join("logo.png"); // matches *.png
+        std::fs::write(&src, b"PNG {{name}} bytes").unwrap();
+        let out = tempfile::tempdir().unwrap();
+        let dst = out.path().join("out.png");
+
+        let step = Step {
+            id: None, name: "copy".into(), description: None,
+            action: Action::Fs {
+                op: FsOp::Copy {
+                    from: src.to_string_lossy().into(),
+                    to: dst.to_string_lossy().into(),
+                    expand: ExpandFlags::default(),
+                },
+                if_exists: None, if_not_exists: None,
+            },
+            on_success: None, on_failure: None, on_return: None,
+            then: vec![], meta: StepMeta::default(),
+        };
+
+        let mut scope = crate::vars::Scope::default();
+        scope.set("name", "SHOULD-NOT-APPEAR".into());
+        let r = Runner::new_with_bundle(
+            HashMap::new(),
+            false,
+            false,
+            Meta::default(),
+            scope,
+            bundle_ctx_at(bundle_dir.path(), &["*.png"]),
+        );
+        r.run_step(&step, 0).unwrap();
+        assert_eq!(std::fs::read(&dst).unwrap(), b"PNG {{name}} bytes");
+    }
+
+    #[test]
+    fn fs_copy_outside_bundle_root_is_byte_exact() {
+        // Bundle is rooted elsewhere; source file lives outside it — the
+        // bundle-rendering rule must not touch a template here.
+        let bundle_dir = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let src = workspace.path().join("raw.txt"); // outside bundle root
+        std::fs::write(&src, "hi {{name}}").unwrap();
+        let dst = workspace.path().join("out.txt");
+
+        let step = Step {
+            id: None, name: "copy".into(), description: None,
+            action: Action::Fs {
+                op: FsOp::Copy {
+                    from: src.to_string_lossy().into(),
+                    to: dst.to_string_lossy().into(),
+                    expand: ExpandFlags::default(),
+                },
+                if_exists: None, if_not_exists: None,
+            },
+            on_success: None, on_failure: None, on_return: None,
+            then: vec![], meta: StepMeta::default(),
+        };
+
+        let mut scope = crate::vars::Scope::default();
+        scope.set("name", "world".into());
+        let r = Runner::new_with_bundle(
+            HashMap::new(),
+            false,
+            false,
+            Meta::default(),
+            scope,
+            bundle_ctx_at(bundle_dir.path(), &[]),
+        );
+        r.run_step(&step, 0).unwrap();
+        assert_eq!(std::fs::read_to_string(&dst).unwrap(), "hi {{name}}");
+    }
+
+    #[test]
+    fn fs_copy_outside_bundle_no_ctx_is_byte_exact() {
+        // No bundle context at all — matches today's legacy behavior.
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src.txt");
+        std::fs::write(&src, "{{name}} template").unwrap();
+        let dst = dir.path().join("out.txt");
+
+        let step = Step {
+            id: None, name: "copy".into(), description: None,
+            action: Action::Fs {
+                op: FsOp::Copy {
+                    from: src.to_string_lossy().into(),
+                    to: dst.to_string_lossy().into(),
+                    expand: ExpandFlags::default(),
+                },
+                if_exists: None, if_not_exists: None,
+            },
+            on_success: None, on_failure: None, on_return: None,
+            then: vec![], meta: StepMeta::default(),
+        };
+
+        let mut scope = crate::vars::Scope::default();
+        scope.set("name", "x".into());
+        let r = Runner::new(HashMap::new(), false, false, Meta::default(), scope);
+        r.run_step(&step, 0).unwrap();
+        assert_eq!(std::fs::read_to_string(&dst).unwrap(), "{{name}} template");
     }
 
     #[test]

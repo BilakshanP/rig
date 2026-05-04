@@ -92,20 +92,31 @@ fn describe_inner(
         }
         Action::Fs { op, if_exists, if_not_exists } => {
             match op {
-                FsOp::Create { path, recurse, content } => {
+                FsOp::Create { path, recurse, content, expand } => {
                     for p in path {
                         let kind = if p.ends_with('/') { "dir" } else { "file" };
                         println!("{ai}{}", style::render(&format!("<md>create {kind}:</m> {p}")));
                     }
                     if *recurse { println!("{ai}{}", style::render("<md>recurse:</m> true")); }
                     if let Some(c) = content { println!("{ai}{}", style::render(&format!("<md>content:</m> {c:?}"))); }
+                    if let Some(label) = expand_label(expand) { println!("{ai}{}", style::render(&format!("<md>expand:</m> {label}"))); }
                 }
-                FsOp::Symlink { from, to } => println!("{ai}{}", style::render(&format!("<md>symlink</m> {from} -> {to}"))),
-                FsOp::Copy { from, to } => println!("{ai}{}", style::render(&format!("<md>copy</m> {from} -> {to}"))),
-                FsOp::Move { from, to } => println!("{ai}{}", style::render(&format!("<md>move</m> {from} -> {to}"))),
-                FsOp::Delete { path, recurse } => {
+                FsOp::Symlink { from, to, expand } => {
+                    println!("{ai}{}", style::render(&format!("<md>symlink</m> {from} -> {to}")));
+                    if let Some(label) = expand_label(expand) { println!("{ai}{}", style::render(&format!("<md>expand:</m> {label}"))); }
+                }
+                FsOp::Copy { from, to, expand } => {
+                    println!("{ai}{}", style::render(&format!("<md>copy</m> {from} -> {to}")));
+                    if let Some(label) = expand_label(expand) { println!("{ai}{}", style::render(&format!("<md>expand:</m> {label}"))); }
+                }
+                FsOp::Move { from, to, expand } => {
+                    println!("{ai}{}", style::render(&format!("<md>move</m> {from} -> {to}")));
+                    if let Some(label) = expand_label(expand) { println!("{ai}{}", style::render(&format!("<md>expand:</m> {label}"))); }
+                }
+                FsOp::Delete { path, recurse, expand } => {
                     for p in path { println!("{ai}{}", style::render(&format!("<md>delete:</m> {p}"))); }
                     if *recurse { println!("{ai}{}", style::render("<md>recurse:</m> true")); }
+                    if let Some(label) = expand_label(expand) { println!("{ai}{}", style::render(&format!("<md>expand:</m> {label}"))); }
                 }
             }
             if let Some(c) = if_exists { println!("{ai}{}", style::render(&format!("<md>if-exists:</m> {}", condition_label(c)))); }
@@ -194,4 +205,22 @@ fn condition_label(c: &Condition) -> String {
         Condition::Action(a) => format!("{a:?}").to_lowercase(),
         Condition::Execute { execute } => format!("execute({})", step_ref_label(execute)),
     }
+}
+
+fn expand_label(flags: &ExpandFlags) -> Option<String> {
+    if *flags == ExpandFlags::PATHS {
+        return None;
+    }
+    if *flags == ExpandFlags::NONE {
+        return Some("none (byte-exact)".into());
+    }
+    if *flags == ExpandFlags::ALL {
+        return Some("all".into());
+    }
+    let mut parts = Vec::new();
+    if flags.from { parts.push("from"); }
+    if flags.to { parts.push("to"); }
+    if flags.path { parts.push("path"); }
+    if flags.contents { parts.push("contents"); }
+    Some(parts.join(", "))
 }

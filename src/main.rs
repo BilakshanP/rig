@@ -1,3 +1,4 @@
+mod bundle;
 mod config;
 mod executor;
 mod inspect;
@@ -5,15 +6,21 @@ mod path;
 mod style;
 mod vars;
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 #[derive(Parser)]
-#[command(name = "rig", about = "Bootstrap dev environments from a JSON config")]
+#[command(name = "rig", about = "Bootstrap dev environments from a JSON config or .rig bundle")]
 struct Cli {
-    /// Path or URL to the JSON config file
-    config: String,
+    /// Subcommand (omit to run a config/bundle)
+    #[command(subcommand)]
+    command: Option<Commands>,
+
+    /// Path or URL to the JSON config or .rig bundle (required unless a subcommand is given)
+    config: Option<String>,
+
     /// Print what would happen without executing
     #[arg(long)]
     dry_run: bool,
@@ -46,29 +53,87 @@ struct Cli {
     set_vars: Vec<String>,
 }
 
+#[derive(Subcommand)]
+enum Commands {
+    /// Pack a directory into a .rig bundle (tar.gz)
+    Pack {
+        /// Source directory (must contain manifest.json or manifest.jsonc at the root)
+        src: PathBuf,
+        /// Output .rig path
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+    /// Unpack a .rig bundle into a directory
+    Unpack {
+        /// Bundle archive
+        archive: PathBuf,
+        /// Destination directory (created if missing)
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+    /// Show manifest metadata and file list of a .rig bundle
+    Info {
+        /// Bundle archive
+        archive: PathBuf,
+    },
+}
+
 fn fetch_url(url: &str) -> Result<std::path::PathBuf, String> {
-    let body = ureq::get(url)
-        .call()
-        .map_err(|e| format!("failed to fetch {url}: {e}"))?
-        .body_mut()
-        .read_to_string()
-        .map_err(|e| format!("failed to read response: {e}"))?;
-    let tmp = std::env::temp_dir().join("rig-remote-config.jsonc");
-    std::fs::write(&tmp, body.as_bytes())
-        .map_err(|e| format!("failed to write temp file: {e}"))?;
+    // Preserve the `.rig` extension when the URL points at a bundle so the
+    // bundle detection path later on picks it up without sniffing.
+    let tmp_name = if url.ends_with(".rig") {
+        "rig-remote-bundle.rig"
+    } else {
+        "rig-remote-config.jsonc"
+    };
+    let tmp = std::env::temp_dir().join(tmp_name);
+
+    if url.ends_with(".rig") {
+        // Binary-safe path for archives.
+        let mut resp = ureq::get(url)
+            .call()
+            .map_err(|e| format!("failed to fetch {url}: {e}"))?;
+        let mut reader = resp.body_mut().as_reader();
+        let mut buf = Vec::new();
+        std::io::Read::read_to_end(&mut reader, &mut buf)
+            .map_err(|e| format!("failed to read response: {e}"))?;
+        std::fs::write(&tmp, &buf).map_err(|e| format!("failed to write temp file: {e}"))?;
+    } else {
+        let body = ureq::get(url)
+            .call()
+            .map_err(|e| format!("failed to fetch {url}: {e}"))?
+            .body_mut()
+            .read_to_string()
+            .map_err(|e| format!("failed to read response: {e}"))?;
+        std::fs::write(&tmp, body.as_bytes())
+            .map_err(|e| format!("failed to write temp file: {e}"))?;
+    }
     Ok(tmp)
 }
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
+    // Dispatch subcommands first; they don't use the main config flow.
+    if let Some(cmd) = cli.command {
+        return run_subcommand(cmd);
+    }
+
+    let Some(raw_config) = cli.config else {
+        eprintln!(
+            "{}",
+            style::render("<fr>error:</f> no config/bundle given; pass a path or use a subcommand (pack/unpack/info)")
+        );
+        return ExitCode::FAILURE;
+    };
+
     let vars: HashMap<String, String> = cli.set_vars.iter().filter_map(|s| {
         let (k, v) = s.split_once('=')?;
         Some((k.to_string(), v.to_string()))
     }).collect();
 
-    let (config_path, _tmp) = if cli.config.starts_with("http://") || cli.config.starts_with("https://") {
-        match fetch_url(&cli.config) {
+    let (config_path, _tmp) = if raw_config.starts_with("http://") || raw_config.starts_with("https://") {
+        match fetch_url(&raw_config) {
             Ok(p) => {
                 let s = p.to_string_lossy().into_owned();
                 (s, Some(p))
@@ -79,7 +144,35 @@ fn main() -> ExitCode {
             }
         }
     } else {
-        (cli.config.clone(), None)
+        (raw_config.clone(), None)
+    };
+
+    // Bundle detection: if the path points at a `.rig` archive (or has gzip
+    // magic bytes), open it, stage it per `bundle.extract-to`, and redirect
+    // `config_path` to the manifest inside the staging dir. The BundleCtx is
+    // bound at function scope so its cleanup runs at end of main.
+    let mut bundle_ctx: Option<bundle::BundleCtx> = None;
+    let config_path = if bundle::looks_like_bundle(std::path::Path::new(&config_path)) {
+        match bundle::open_bundle(std::path::Path::new(&config_path), &vars, cli.placeholder) {
+            Ok((_cfg, ctx)) => {
+                // Locate the manifest inside the staging root. open_bundle
+                // already verified it exists.
+                let manifest = if ctx.root.join("manifest.jsonc").is_file() {
+                    ctx.root.join("manifest.jsonc")
+                } else {
+                    ctx.root.join("manifest.json")
+                };
+                let s = manifest.to_string_lossy().into_owned();
+                bundle_ctx = Some(ctx);
+                s
+            }
+            Err(e) => {
+                eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
+                return ExitCode::FAILURE;
+            }
+        }
+    } else {
+        config_path
     };
 
     if cli.list_vars {
@@ -140,7 +233,10 @@ fn main() -> ExitCode {
     }
 
     let scope = config::build_scope(&cfg, &vars);
-    let runner = executor::Runner::new(index, cli.dry_run, cli.verbose, cfg.meta.clone(), scope);
+    let runner = match bundle_ctx.take() {
+        Some(ctx) => executor::Runner::new_with_bundle(index, cli.dry_run, cli.verbose, cfg.meta.clone(), scope, ctx),
+        None => executor::Runner::new(index, cli.dry_run, cli.verbose, cfg.meta.clone(), scope),
+    };
     let cwd = std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default();
 
     if cli.dry_run {
@@ -166,6 +262,7 @@ fn main() -> ExitCode {
             Some(step) => {
                 if let Err(e) = runner.run_step(step, 0) {
                     eprintln!("{}", style::render(&format!("<fr>error in step '{id}':</f> {e}")));
+                    report_bundle_staging(&runner);
                     return ExitCode::FAILURE;
                 }
             }
@@ -176,9 +273,123 @@ fn main() -> ExitCode {
         }
     } else if let Err(e) = runner.run_steps(&cfg.steps) {
         eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
+        report_bundle_staging(&runner);
         return ExitCode::FAILURE;
+    }
+
+    // If we ran from a bundle, mark success (honors Cleanup::OnSuccess) and
+    // surface the staging path when we're keeping it around. The actual
+    // filesystem cleanup happens when `runner` (and the BundleCtx it owns)
+    // drops at the end of main.
+    if let Some(bctx) = runner.bundle.as_ref() {
+        bctx.mark_success();
+        if bctx.will_keep_staging() {
+            println!(
+                "{}",
+                style::render(&format!("<md>bundle staged at:</m> {}", bctx.root.display()))
+            );
+        }
     }
 
     println!("{}", style::render("<fg>Done.</f>"));
     ExitCode::SUCCESS
+}
+
+/// Print the bundle staging path when the ctx will keep it — helpful on
+/// failure so users can inspect what got unpacked before the error.
+fn report_bundle_staging(runner: &executor::Runner) {
+    if let Some(bctx) = runner.bundle.as_ref()
+        && bctx.will_keep_staging()
+    {
+        eprintln!(
+            "{}",
+            style::render(&format!("<md>bundle left staged at:</m> {}", bctx.root.display()))
+        );
+    }
+}
+
+fn run_subcommand(cmd: Commands) -> ExitCode {
+    match cmd {
+        Commands::Pack { src, output } => {
+            if let Err(e) = bundle::pack(&src, &output) {
+                eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
+                return ExitCode::FAILURE;
+            }
+            println!(
+                "{}",
+                style::render(&format!(
+                    "<fg>packed:</f> <mb>{}</m> -> <mb>{}</m>",
+                    src.display(),
+                    output.display()
+                ))
+            );
+            ExitCode::SUCCESS
+        }
+        Commands::Unpack { archive, output } => {
+            if let Err(e) = bundle::unpack(&archive, &output) {
+                eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
+                return ExitCode::FAILURE;
+            }
+            println!(
+                "{}",
+                style::render(&format!(
+                    "<fg>unpacked:</f> <mb>{}</m> -> <mb>{}</m>",
+                    archive.display(),
+                    output.display()
+                ))
+            );
+            ExitCode::SUCCESS
+        }
+        Commands::Info { archive } => match bundle::info(&archive) {
+            Ok(info) => {
+                print_bundle_info(&info, &archive);
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
+                ExitCode::FAILURE
+            }
+        },
+    }
+}
+
+fn print_bundle_info(info: &bundle::BundleInfo, archive: &std::path::Path) {
+    let name = info.name.as_deref().unwrap_or("<unnamed>");
+    let version = info.version.as_deref().unwrap_or("?");
+    println!(
+        "{}",
+        style::render(&format!(
+            "<mb>{name}</m> <md>v{version}</m> <md>({})</m>",
+            archive.display()
+        ))
+    );
+    if let Some(desc) = &info.description {
+        println!("{}", style::render(&format!("<md>{desc}</m>")));
+    }
+    println!(
+        "{}",
+        style::render(&format!("<mb>steps:</m> {}", info.step_count))
+    );
+    if let Some(bm) = &info.bundle_meta {
+        let cleanup = format!("{:?}", bm.cleanup).to_lowercase();
+        println!("{}", style::render(&format!("<mb>cleanup:</m> {cleanup}")));
+        if !bm.binary.is_empty() {
+            println!(
+                "{}",
+                style::render(&format!("<mb>binary:</m> {}", bm.binary.join(", ")))
+            );
+        }
+    }
+
+    let files: Vec<&bundle::FileEntry> = info.files.iter().filter(|f| !f.is_dir).collect();
+    println!(
+        "{}",
+        style::render(&format!("<mb>files:</m> {}", files.len()))
+    );
+    for f in &files {
+        println!(
+            "  {}",
+            style::render(&format!("{}  <md>{} bytes</m>", f.path, f.size))
+        );
+    }
 }

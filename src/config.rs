@@ -14,6 +14,11 @@ pub struct Config {
     pub description: Option<String>,
     #[serde(default)]
     pub meta: Meta,
+    /// Optional bundle-specific metadata. Present (typically) in a bundle's
+    /// `manifest.jsonc`; absent in plain configs. Kept as a nested `bundle`
+    /// key to keep top-level surface backwards-compatible.
+    #[serde(default)]
+    pub bundle: Option<crate::bundle::BundleMeta>,
     pub steps: Vec<Step>,
 }
 
@@ -195,6 +200,84 @@ pub enum GitOnConflict {
 
 // -- FS --
 
+/// Per-action control over whether `{{...}}` substitution applies to path
+/// components (`from`/`to`/`path`) and file contents (`contents`).
+///
+/// Deserializes from three forms:
+/// - `true`  — enable expansion on every relevant field (including `contents`)
+/// - `false` — disable expansion everywhere, including path fields. Useful
+///   inside bundles that ship literal `{{name}}` directory names
+/// - `{ "from": true, "to": true, "path": true, "contents": true }` — per-field
+///   control; omitted fields fall back to the default (see [`Self::default`])
+///
+/// The default is "paths yes, contents no" — preserves the pre-bundle
+/// behavior where `{{...}}` in `fs.create.path` / `fs.copy.to` etc. is
+/// substituted automatically, while leaving `fs.copy` contents byte-exact
+/// outside of a bundle run.
+///
+/// Not every field applies to every action (e.g. `symlink` has `from`+`to`,
+/// no `path` or `contents`). Unapplicable fields are ignored during execution.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ExpandFlags {
+    pub from: bool,
+    pub to: bool,
+    pub path: bool,
+    pub contents: bool,
+}
+
+impl Default for ExpandFlags {
+    /// Default matches legacy behavior: path components are rendered, file
+    /// contents are not. Bundles that ship literal `{{name}}` directory
+    /// names should set `"expand": false` (or object overrides).
+    fn default() -> Self {
+        Self::PATHS
+    }
+}
+
+impl ExpandFlags {
+    /// Every field enabled — `{{...}}` is substituted everywhere it applies.
+    pub const ALL: Self = Self { from: true, to: true, path: true, contents: true };
+    /// No substitution anywhere — all path/content fields are used byte-exact.
+    pub const NONE: Self = Self { from: false, to: false, path: false, contents: false };
+    /// Path components rendered, file contents left byte-exact. This is the
+    /// default and matches the pre-bundle behavior.
+    pub const PATHS: Self = Self { from: true, to: true, path: true, contents: false };
+}
+
+impl<'de> Deserialize<'de> for ExpandFlags {
+    fn deserialize<D>(d: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Bool(bool),
+            Object {
+                from: Option<bool>,
+                to: Option<bool>,
+                path: Option<bool>,
+                contents: Option<bool>,
+            },
+        }
+        match Raw::deserialize(d)? {
+            Raw::Bool(true) => Ok(Self::ALL),
+            Raw::Bool(false) => Ok(Self::NONE),
+            Raw::Object { from, to, path, contents } => {
+                // Fall back to the per-field defaults from Self::PATHS for
+                // omitted keys so `{ "contents": true }` still renders paths.
+                let d = Self::PATHS;
+                Ok(Self {
+                    from: from.unwrap_or(d.from),
+                    to: to.unwrap_or(d.to),
+                    path: path.unwrap_or(d.path),
+                    contents: contents.unwrap_or(d.contents),
+                })
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FsOp {
@@ -205,24 +288,34 @@ pub enum FsOp {
         recurse: bool,
         #[serde(default)]
         content: Option<String>,
+        #[serde(default)]
+        expand: ExpandFlags,
     },
     Symlink {
         from: String,
         to: String,
+        #[serde(default)]
+        expand: ExpandFlags,
     },
     Copy {
         from: String,
         to: String,
+        #[serde(default)]
+        expand: ExpandFlags,
     },
     Move {
         from: String,
         to: String,
+        #[serde(default)]
+        expand: ExpandFlags,
     },
     Delete {
         #[serde(deserialize_with = "de_single_or_vec")]
         path: Vec<String>,
         #[serde(default)]
         recurse: bool,
+        #[serde(default)]
+        expand: ExpandFlags,
     },
 }
 
@@ -456,7 +549,7 @@ fn collect_refs_in_action(action: &Action, refs: &mut Vec<crate::vars::VarRef>) 
             FsOp::Delete { path, .. } => {
                 for p in path { refs.extend(crate::vars::scan_refs(p)); }
             }
-            FsOp::Symlink { from, to } | FsOp::Copy { from, to } | FsOp::Move { from, to } => {
+            FsOp::Symlink { from, to, .. } | FsOp::Copy { from, to, .. } | FsOp::Move { from, to, .. } => {
                 refs.extend(crate::vars::scan_refs(from));
                 refs.extend(crate::vars::scan_refs(to));
             }
@@ -743,7 +836,7 @@ mod tests {
         }"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
         match &cfg.steps[0].action {
-            Action::Fs { op: FsOp::Symlink { from, to }, .. } => {
+            Action::Fs { op: FsOp::Symlink { from, to, .. }, .. } => {
                 assert_eq!(from, "~/a");
                 assert_eq!(to, "~/b");
             }
@@ -1100,5 +1193,155 @@ mod tests {
             Err(ConfigError::InvalidMarkup(..))
         ));
         std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn parse_bundle_section_explicit() {
+        let json = r#"{
+            "name": "b", "version": "1.0.0",
+            "bundle": {
+                "extract-to": "home",
+                "cleanup": "always",
+                "binary": ["*.png", "assets/**"]
+            },
+            "steps": []
+        }"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        let bundle = cfg.bundle.expect("bundle section should be parsed");
+        assert_eq!(bundle.cleanup, crate::bundle::Cleanup::Always);
+        assert!(matches!(
+            bundle.extract_to,
+            crate::bundle::ExtractTo::Named(crate::bundle::NamedExtractTo::Home)
+        ));
+        assert_eq!(bundle.binary, vec!["*.png".to_string(), "assets/**".to_string()]);
+    }
+
+    #[test]
+    fn parse_bundle_section_absent_is_none() {
+        let json = r#"{ "name": "b", "version": "1.0.0", "steps": [] }"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        assert!(cfg.bundle.is_none());
+    }
+
+    #[test]
+    fn parse_bundle_section_custom_extract_to() {
+        let json = r#"{
+            "name": "b", "version": "1.0.0",
+            "bundle": { "extract-to": { "path": "/tmp/stage" } },
+            "steps": []
+        }"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        let bundle = cfg.bundle.unwrap();
+        match bundle.extract_to {
+            crate::bundle::ExtractTo::Custom { path } => assert_eq!(path, "/tmp/stage"),
+            _ => panic!("expected Custom extract-to"),
+        }
+    }
+
+    #[test]
+    fn expand_defaults_to_paths_when_absent() {
+        // Default matches pre-bundle behavior: path components rendered,
+        // file contents left byte-exact.
+        let json = r#"{
+            "name":"t","version":"1.0.0",
+            "steps":[{"name":"c","action":{"kind":"fs","copy":{"from":"a","to":"b"}}}]
+        }"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        if let Action::Fs { op: FsOp::Copy { expand, .. }, .. } = &cfg.steps[0].action {
+            assert_eq!(*expand, ExpandFlags::PATHS);
+        } else {
+            panic!("expected fs copy");
+        }
+    }
+
+    #[test]
+    fn expand_shorthand_true_means_all() {
+        let json = r#"{
+            "name":"t","version":"1.0.0",
+            "steps":[{"name":"c","action":{"kind":"fs","copy":{"from":"a","to":"b","expand":true}}}]
+        }"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        if let Action::Fs { op: FsOp::Copy { expand, .. }, .. } = &cfg.steps[0].action {
+            assert_eq!(*expand, ExpandFlags::ALL);
+        } else {
+            panic!("expected fs copy");
+        }
+    }
+
+    #[test]
+    fn expand_shorthand_false_means_none() {
+        // `false` disables everything, including the default path rendering —
+        // this is the form a bundle with literal {{name}} dirs would use.
+        let json = r#"{
+            "name":"t","version":"1.0.0",
+            "steps":[{"name":"c","action":{"kind":"fs","copy":{"from":"a","to":"b","expand":false}}}]
+        }"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        if let Action::Fs { op: FsOp::Copy { expand, .. }, .. } = &cfg.steps[0].action {
+            assert_eq!(*expand, ExpandFlags::NONE);
+        } else {
+            panic!("expected fs copy");
+        }
+    }
+
+    #[test]
+    fn expand_object_form_inherits_defaults() {
+        // Object form: unspecified fields fall back to PATHS defaults, so
+        // `{"contents": true}` still renders paths — the common bundle case.
+        let json = r#"{
+            "name":"t","version":"1.0.0",
+            "steps":[{"name":"c","action":{"kind":"fs","copy":{
+                "from":"a","to":"b",
+                "expand":{"contents":true}
+            }}}]
+        }"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        if let Action::Fs { op: FsOp::Copy { expand, .. }, .. } = &cfg.steps[0].action {
+            assert_eq!(expand.from, true);
+            assert_eq!(expand.to, true);
+            assert_eq!(expand.path, true);
+            assert_eq!(expand.contents, true);
+        } else {
+            panic!("expected fs copy");
+        }
+    }
+
+    #[test]
+    fn expand_object_form_can_disable_paths() {
+        // Explicit per-field overrides beat the defaults.
+        let json = r#"{
+            "name":"t","version":"1.0.0",
+            "steps":[{"name":"c","action":{"kind":"fs","copy":{
+                "from":"a","to":"b",
+                "expand":{"from":false,"to":false}
+            }}}]
+        }"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        if let Action::Fs { op: FsOp::Copy { expand, .. }, .. } = &cfg.steps[0].action {
+            assert_eq!(expand.from, false);
+            assert_eq!(expand.to, false);
+            assert_eq!(expand.path, true);     // still default
+            assert_eq!(expand.contents, false);
+        } else {
+            panic!("expected fs copy");
+        }
+    }
+
+    #[test]
+    fn expand_applies_to_all_fs_variants() {
+        // Sanity: every FsOp variant accepts `expand`.
+        for op_json in [
+            r#"{"kind":"fs","create":{"path":"x","expand":true}}"#,
+            r#"{"kind":"fs","symlink":{"from":"a","to":"b","expand":{"to":true}}}"#,
+            r#"{"kind":"fs","copy":{"from":"a","to":"b","expand":false}}"#,
+            r#"{"kind":"fs","move":{"from":"a","to":"b","expand":{"from":true}}}"#,
+            r#"{"kind":"fs","delete":{"path":"x","expand":{"path":true}}}"#,
+        ] {
+            let wrapped = format!(
+                r#"{{"name":"t","version":"1.0.0","steps":[{{"name":"s","action":{op_json}}}]}}"#
+            );
+            let _: Config = serde_json::from_str(&wrapped)
+                .unwrap_or_else(|e| panic!("failed to parse {op_json}: {e}"));
+        }
     }
 }
