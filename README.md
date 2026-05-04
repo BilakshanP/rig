@@ -139,6 +139,7 @@ Control execution behavior per step:
 "meta": {
   "optional": true,     // Skipped unless referenced by ID
   "fallible": true,     // Failure doesn't halt the run
+  "sudo": true,         // Run shell commands with sudo
   "silent": ["stdout"], // Suppress output (--verbose overrides)
   "retries": 3,         // Auto-retry on failure
   "retry-delay": 2.0    // Seconds to wait before each retry

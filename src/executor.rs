@@ -46,9 +46,25 @@ impl Runner {
     }
 
     pub fn run_steps(&self, steps: &[Step]) -> Result<(), ExecError> {
+        if !self.dry_run && Self::needs_sudo(steps) {
+            self.preflight_sudo()?;
+        }
         for step in steps {
             if step.meta.optional { continue; }
             self.run_step(step, 0)?;
+        }
+        Ok(())
+    }
+
+    fn needs_sudo(steps: &[Step]) -> bool {
+        steps.iter().any(|s| s.meta.sudo)
+    }
+
+    fn preflight_sudo(&self) -> Result<(), ExecError> {
+        println!("{}", style::render("<fy>🔒 sudo required — validating credentials...</f>"));
+        let status = Command::new("sudo").arg("-v").status()?;
+        if !status.success() {
+            return Err(ExecError::Command("sudo authentication failed".into()));
         }
         Ok(())
     }
@@ -154,7 +170,7 @@ impl Runner {
     /// Execute an action, returning the exit code (0 for non-shell actions on success).
     fn exec_action(&self, action: &Action, meta: &Meta, indent: &str, _depth: usize) -> Result<i32, ExecError> {
         match action {
-            Action::Shell { commands, dir, env } => self.exec_shell(commands, dir.as_deref(), env.as_ref(), meta, indent),
+            Action::Shell { commands, dir, env } => self.exec_shell(commands, dir.as_deref(), env.as_ref(), meta, indent, meta.sudo),
             Action::Git { repo, dest, on_conflict } => { self.exec_git(repo, dest, on_conflict, meta, indent)?; Ok(0) }
             Action::Fs { op, if_exists, if_not_exists } => { self.exec_fs(op, if_exists.as_ref(), if_not_exists.as_ref(), indent)?; Ok(0) }
         }
@@ -176,17 +192,26 @@ impl Runner {
         env: Option<&HashMap<String, String>>,
         meta: &Meta,
         indent: &str,
+        sudo: bool,
     ) -> Result<i32, ExecError> {
         let mut last_code = 0;
         for cmd in commands {
             if self.dry_run {
-                println!("{indent}  [dry-run] sh -c {cmd:?}");
+                let prefix = if sudo { "sudo sh -c" } else { "sh -c" };
+                println!("{indent}  [dry-run] {prefix} {cmd:?}");
                 if let Some(d) = dir { println!("{indent}    dir: {d}"); }
                 if let Some(e) = env { println!("{indent}    env: {e:?}"); }
                 continue;
             }
-            let mut proc = Command::new("sh");
-            proc.arg("-c").arg(cmd);
+            let mut proc = if sudo {
+                let mut p = Command::new("sudo");
+                p.arg("sh").arg("-c").arg(cmd);
+                p
+            } else {
+                let mut p = Command::new("sh");
+                p.arg("-c").arg(cmd);
+                p
+            };
             if let Some(d) = dir { proc.current_dir(expand_tilde(d)); }
             if let Some(e) = env { proc.envs(e); }
             let output = proc.output()?;
@@ -410,6 +435,7 @@ impl Runner {
         let mut flags = Vec::new();
         if step.meta.optional { flags.push("<fy>optional</f>".to_string()); }
         if step.meta.fallible { flags.push("<fy>fallible</f>".to_string()); }
+        if step.meta.sudo { flags.push("<fy>sudo</f>".to_string()); }
         if !step.meta.silent.is_empty() {
             let s: Vec<_> = step.meta.silent.iter().map(|s| format!("{s:?}").to_lowercase()).collect();
             flags.push(format!("<fy>silent: {}</f>", s.join(", ")));
@@ -422,7 +448,8 @@ impl Runner {
         let ai = format!("{indent}    ");
         match &step.action {
             Action::Shell { commands, dir, env } => {
-                for cmd in commands { println!("{ai}{}", style::render(&format!("<md>sh -c</m> {cmd:?}"))); }
+                let prefix = if step.meta.sudo { "sudo sh -c" } else { "sh -c" };
+                for cmd in commands { println!("{ai}{}", style::render(&format!("<md>{prefix}</m> {cmd:?}"))); }
                 if let Some(d) = dir { println!("{ai}{}", style::render(&format!("<md>dir:</m> {d}"))); }
                 if let Some(e) = env {
                     for (k, v) in e { println!("{ai}{}", style::render(&format!("<md>env:</m> {k}={v}"))); }

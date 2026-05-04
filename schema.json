@@ -87,6 +87,11 @@
                     "default": false,
                     "description": "Failure doesn't halt the run"
                 },
+                "sudo": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Run shell commands with sudo"
+                },
                 "silent": {
                     "type": "array",
                     "items": { "type": "string", "enum": ["stdout", "stderr"] },

@@ -56,6 +56,7 @@ Actions are nested objects with a `kind` discriminator. Steps can have an `id` f
 - **`on-conflict`** — git-specific: `skip` (default), `pull`, `fail`.
 - **`meta.optional`** — skipped in normal flow; only runs when referenced by ID.
 - **`meta.fallible`** — failure logged but doesn't halt the run. `then` steps don't run on failure.
+- **`meta.sudo`** — run shell commands with `sudo`. Pre-flight `sudo -v` runs at startup if any step needs it.
 - **`meta.silent`** — suppress `stdout`/`stderr`; shown with `--verbose`.
 - **`meta.retries`** — auto-retry on failure N times. Overrides global `retries`.
 - **`meta.retry-delay`** — seconds to sleep before each retry.

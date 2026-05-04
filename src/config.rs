@@ -73,6 +73,8 @@ pub struct Meta {
     #[serde(default)]
     pub fallible: bool,
     #[serde(default)]
+    pub sudo: bool,
+    #[serde(default)]
     pub silent: Vec<Silent>,
     #[serde(default)]
     pub retries: Option<u32>,
@@ -590,6 +592,20 @@ mod tests {
         assert_eq!(meta.silent, vec![Silent::Stdout, Silent::Stderr]);
         assert_eq!(meta.retries, Some(3));
         assert_eq!(meta.retry_delay, Some(2.0));
+    }
+
+    #[test]
+    fn parse_meta_sudo() {
+        let json = r#"{
+            "name": "test", "version": "1.0.0",
+            "steps": [{
+                "name": "run",
+                "action": { "kind": "shell", "commands": ["apt install -y foo"] },
+                "meta": { "sudo": true }
+            }]
+        }"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        assert!(cfg.steps[0].meta.sudo);
     }
 
     #[test]

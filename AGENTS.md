@@ -44,7 +44,7 @@ src/
 - `PathSpec` — `Single(String)` or `Multiple(Vec<String>)`
 - `Condition` — `Action(skip/overwrite/append/panic)` or `Execute { execute: StepRef }`
 - `GitOnConflict` — `Skip` (default), `Pull`, `Fail`
-- `Meta` — `optional`, `fallible`, `silent: Vec<Silent>`, `retries?`, `retry_delay?`
+- `Meta` — `optional`, `fallible`, `sudo`, `silent: Vec<Silent>`, `retries?`, `retry_delay?`
 
 ## Executor Rules
 
