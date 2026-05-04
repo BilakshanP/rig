@@ -290,6 +290,7 @@ impl Runner {
                 VarSource::From { from } => format!("capture stdout of {}", step_ref_label(from)),
                 VarSource::To { to } => format!("feed {key} to {}", step_ref_label(to)),
                 VarSource::Command { command } => format!("run `{command}`"),
+                VarSource::File { file } => format!("read file {file:?}"),
             };
             println!("{indent}  [dry-run] var {key} := {desc}");
             return Ok(());
@@ -322,7 +323,7 @@ impl Runner {
                 let output = self.capture_step_stdout(&step)?;
                 let value = output.trim_end_matches('\n').to_string();
                 self.scope.borrow_mut().set(&key, value.clone());
-                println!("{indent}  {}", style::render(&format!("<fg>set</f> <mb>{key}</m> <- {} stdout", step.name)));
+                println!("{indent}  {}", style::render(&format!("<fg>set</f> <mb>{key}</m> \\<- {} stdout", step.name)));
             }
             VarSource::To { to } => {
                 // Feed the variable's current value as stdin to the referenced step.
@@ -331,6 +332,13 @@ impl Runner {
                 let step = resolve_step_ref(to, &self.index).map_err(|id| ExecError::StepNotFound(id.into()))?;
                 self.feed_step_stdin(&step, &value)?;
                 println!("{indent}  {}", style::render(&format!("<fg>fed</f> <mb>{key}</m> -> {}", step.name)));
+            }
+            VarSource::File { file } => {
+                let path = crate::path::expand_tilde(&self.subst(file));
+                let contents = std::fs::read_to_string(&path)
+                    .map_err(|e| ExecError::Command(format!("failed to read {}: {e}", path.display())))?;
+                self.scope.borrow_mut().set(&key, contents);
+                println!("{indent}  {}", style::render(&format!("<fg>set</f> <mb>{key}</m> \\<- {}", path.display())));
             }
         }
         Ok(())
@@ -749,9 +757,10 @@ impl Runner {
             }
             Action::Var { name, source } => {
                 match source {
-                    VarSource::From { from } => println!("{ai}{}", style::render(&format!("<md>var {name} <-</m> {}", step_ref_label(from)))),
+                    VarSource::From { from } => println!("{ai}{}", style::render(&format!("<md>var {name} \\<-</m> {}", step_ref_label(from)))),
                     VarSource::To { to } => println!("{ai}{}", style::render(&format!("<md>var {name} -></m> {}", step_ref_label(to)))),
                     VarSource::Command { command } => println!("{ai}{}", style::render(&format!("<md>var {name} :=</m> {command:?}"))),
+                    VarSource::File { file } => println!("{ai}{}", style::render(&format!("<md>var {name} \\<- file</m> {file:?}"))),
                 }
             }
         }

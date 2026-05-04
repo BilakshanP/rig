@@ -70,7 +70,7 @@ Actions are nested objects with a `kind` discriminator. Steps can have an `id` f
 - **`meta.retry-delay`** — seconds to sleep before each retry.
 - **Top-level `meta`** — global defaults for `retries`, `retry-delay`, `silent`, `sudo`, and `log` (run transcript path).
 - **`io` action** — structured logging with levels (`log`, `info`, `warn`, `error`) and optional aml markup. Always succeeds.
-- **`var` action** — set a mutable `@var` from `command` (shell output), `from` (step stdout), or `to` (feed variable to step stdin).
+- **`var` action** — set a mutable `@var` from `command` (shell output), `from` (step stdout), `to` (feed variable to step stdin), or `file` (read file contents).
 - **Variable system** — 5 categories by prefix/case:
   - `#NAME` (built-in: `#timestamp`, `#now`, `#pwd`)
   - `@NAME` (mutable, runtime-only)

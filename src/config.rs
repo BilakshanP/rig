@@ -147,6 +147,8 @@ pub enum VarSource {
     To { to: StepRef },
     /// Run a shell command and capture its stdout directly.
     Command { command: String },
+    /// Read a file's contents into the variable.
+    File { file: String },
 }
 
 // -- IO --
@@ -428,11 +430,11 @@ fn collect_refs_in_action(action: &Action, refs: &mut Vec<crate::vars::VarRef>) 
             }
         },
         Action::Io { message, .. } => refs.extend(crate::vars::scan_refs(message)),
-        Action::Var { source, .. } => {
-            if let VarSource::Command { command } = source {
-                refs.extend(crate::vars::scan_refs(command));
-            }
-        }
+        Action::Var { source, .. } => match source {
+            VarSource::Command { command } => refs.extend(crate::vars::scan_refs(command)),
+            VarSource::File { file } => refs.extend(crate::vars::scan_refs(file)),
+            _ => {}
+        },
     }
 }
 

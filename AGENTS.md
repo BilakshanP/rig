@@ -38,7 +38,7 @@ src/
   - `Fs { op: FsOp, if_exists?, if_not_exists? }`
   - `Io { level: IoLevel, message, markup }`
   - `Var { name, source: VarSource }`
-- `VarSource` — `Command { command }`, `From { from: StepRef }`, `To { to: StepRef }`
+- `VarSource` — `Command { command }`, `From { from: StepRef }`, `To { to: StepRef }`, `File { file: String }`
 - `FsOp` — enum:
   - `Create { path: Vec<String>, recurse, content? }` (append supported with content)
   - `Symlink { from, to }`
@@ -68,7 +68,7 @@ src/
 - `git`: clone if missing; on-conflict controls skip/pull/fail
 - `fs`: dispatch to create/symlink/copy/move/delete with condition handling; create supports `content` for inline file writing
 - `io`: print message with level prefix; write to log file if configured
-- `var`: set `@` variable from command stdout / step stdout / (stdin feed via `to`)
+- `var`: set `@` variable from command stdout / step stdout / file contents / (stdin feed via `to`)
 - Handler resolution: `on-return[exact code]` → `on-return["_"]` → `on-success`/`on-failure`
 - `then`: run sequentially after action succeeds or is handled; skipped if action fails unhandled
 - `optional`: skipped in normal flow; only runs when referenced

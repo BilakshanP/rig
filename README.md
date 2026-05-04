@@ -281,6 +281,9 @@ rig setup.json --set env=prod     # overrides env
 
 // Feed a variable's value as stdin to a step
 { "kind": "var", "name": "@config", "to": "apply-config-step" }
+
+// Read a file's contents
+{ "kind": "var", "name": "@config_data", "file": "~/config.json" }
 ```
 
 Only `@`-prefixed variables are writable at runtime. Writing to `{{NAME}}` or `{{name}}` is a parse-time error.

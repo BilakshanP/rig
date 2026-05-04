@@ -117,9 +117,10 @@ fn describe_inner(
         }
         Action::Var { name, source } => {
             match source {
-                VarSource::From { from } => println!("{ai}{}", style::render(&format!("<md>var {name} <-</m> {}", step_ref_label(from)))),
+                VarSource::From { from } => println!("{ai}{}", style::render(&format!("<md>var {name} \\<-</m> {}", step_ref_label(from)))),
                 VarSource::To { to } => println!("{ai}{}", style::render(&format!("<md>var {name} -></m> {}", step_ref_label(to)))),
                 VarSource::Command { command } => println!("{ai}{}", style::render(&format!("<md>var {name} :=</m> {command:?}"))),
+                VarSource::File { file } => println!("{ai}{}", style::render(&format!("<md>var {name} \\<- file</m> {file:?}"))),
             }
         }
     }

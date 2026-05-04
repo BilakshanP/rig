@@ -275,6 +275,7 @@
                 "kind": { "const": "var" },
                 "name": { "type": "string", "description": "Variable name (must start with @ for runtime mutability)" },
                 "command": { "type": "string", "description": "Shell command; captures stdout into the variable" },
+                "file": { "type": "string", "description": "Read this file's contents into the variable (~ expanded)" },
                 "from": {
                     "oneOf": [
                         { "type": "string", "description": "Step ID whose stdout to capture" },
@@ -291,6 +292,7 @@
             "required": ["kind", "name"],
             "oneOf": [
                 { "required": ["command"] },
+                { "required": ["file"] },
                 { "required": ["from"] },
                 { "required": ["to"] }
             ]
