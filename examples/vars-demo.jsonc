@@ -1,0 +1,190 @@
+{
+    "$schema": "../schema.json",
+
+    // -- Variable features walkthrough --
+    //
+    // Run: rig examples/vars-demo.jsonc
+    //  -> prompts for name, environment, and a "secret" (piped input works too)
+    //
+    // Dry-run: rig examples/vars-demo.jsonc --dry-run
+    //  -> uses defaults where present, leaves the rest unresolved
+
+    "name": "vars-demo",
+    "version": "1.0.0",
+    "description": "Demonstrates var captures, file reads, stdin prompts, and references.",
+
+    "meta": {
+        "vars": {
+            "project": "demo",
+            "greeting": "hello"
+        }
+    },
+
+    "steps": [
+
+        // -- Built-ins: #timestamp (startup), #now (eval-time), #pwd --
+        {
+            "name": "Show built-ins",
+            "action": {
+                "kind": "io", "level": "info",
+                "message": "started at <fc>{{#timestamp:%Y-%m-%d %H:%M:%S}}</f> in <mb>{{#pwd}}</m>",
+                "markup": true
+            }
+        },
+
+        // -- meta.vars default --
+        {
+            "name": "Use default greeting",
+            "action": {
+                "kind": "io", "level": "info",
+                "message": "{{greeting}}, {{project}}!"
+            }
+        },
+
+        // -- var action: capture shell command stdout --
+        {
+            "name": "Capture git status count",
+            "action": {
+                "kind": "var",
+                "name": "@changed_files",
+                "command": "git status --porcelain 2>/dev/null | wc -l | tr -d ' '"
+            }
+        },
+        {
+            "name": "Show captured",
+            "action": {
+                "kind": "io", "level": "info",
+                "message": "changed files: {{@changed_files}}"
+            }
+        },
+
+        // -- io read: prompt the user, with a default --
+        {
+            "name": "Ask for environment",
+            "action": {
+                "kind": "io",
+                "read": "@env",
+                "prompt": "Environment (dev/staging/prod) [dev]: ",
+                "default": "dev"
+            }
+        },
+
+        // -- io read with secret: true: hidden password input --
+        {
+            "name": "Ask for a secret",
+            "action": {
+                "kind": "io",
+                "read": "@api_key",
+                "prompt": "API key (input hidden, optional): ",
+                "default": "none",
+                "secret": true
+            }
+        },
+
+        // -- Use the captured inputs --
+        {
+            "name": "Summary",
+            "action": {
+                "kind": "io", "level": "info",
+                "message": "env=<fc>{{@env}}</f>, api_key length stored in <mb>@api_key</m>",
+                "markup": true
+            }
+        },
+
+        // -- Prepare a temp file to demonstrate file-read --
+        {
+            "id": "make-sample",
+            "name": "Create sample config file",
+            "action": {
+                "kind": "fs",
+                "create": {
+                    "path": "/tmp/rig-vars-demo.txt",
+                    "content": "sample content written at {{#now:%H:%M:%S}}\n"
+                },
+                "if-exists": "overwrite"
+            }
+        },
+
+        // -- var from file: read the file's contents into a variable --
+        {
+            "name": "Read that file into a variable",
+            "action": {
+                "kind": "var",
+                "name": "@sample",
+                "file": "/tmp/rig-vars-demo.txt"
+            }
+        },
+        {
+            "name": "Show file contents",
+            "action": {
+                "kind": "io", "level": "info",
+                "message": "file contents: {{@sample}}"
+            }
+        },
+
+        // -- var from: run a step and capture its stdout --
+        {
+            "id": "emit-hash",
+            "name": "Emit a hash (helper step)",
+            "action": {
+                "kind": "shell",
+                "commands": ["echo 'abc123def456'"]
+            },
+            "meta": { "optional": true, "silent": ["stdout"] }
+        },
+        {
+            "name": "Capture that step's stdout",
+            "action": {
+                "kind": "var",
+                "name": "@hash",
+                "from": "emit-hash"
+            }
+        },
+        {
+            "name": "Show hash",
+            "action": {
+                "kind": "io", "level": "info",
+                "message": "hash = {{@hash}}"
+            }
+        },
+
+        // -- var to: feed a variable's value to a step's stdin --
+        {
+            "id": "count-chars",
+            "name": "Count characters of stdin",
+            "action": {
+                "kind": "shell",
+                "commands": ["wc -c"]
+            },
+            "meta": { "optional": true }
+        },
+        {
+            "name": "Feed @sample to wc -c",
+            "action": {
+                "kind": "var",
+                "name": "@sample",
+                "to": "count-chars"
+            }
+        },
+
+        // -- Cleanup --
+        {
+            "name": "Cleanup",
+            "action": {
+                "kind": "fs",
+                "delete": { "path": "/tmp/rig-vars-demo.txt" },
+                "if-not-exists": "skip"
+            }
+        },
+
+        // -- Unresolved var reference (for the highlight feature) --
+        {
+            "name": "Reference an unset var",
+            "action": {
+                "kind": "io", "level": "warn",
+                "message": "never set: {{@never_set}}",
+                "markup": true
+            }
+        }
+    ]
+}
