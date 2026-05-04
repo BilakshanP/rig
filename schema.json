@@ -25,7 +25,12 @@
                 },
                 "sudo": { "type": "boolean", "default": false, "description": "Global default: run shell commands with sudo" },
                 "retries": { "type": "integer", "minimum": 0, "description": "Global default: auto-retry count on failure" },
-                "retry-delay": { "type": "number", "minimum": 0, "description": "Global default: seconds before each retry" }
+                "retry-delay": { "type": "number", "minimum": 0, "description": "Global default: seconds before each retry" },
+                "vars": {
+                    "type": "object",
+                    "additionalProperties": { "type": "string" },
+                    "description": "Variable defaults (overridden by --set key=value)"
+                }
             }
         },
         "step": {

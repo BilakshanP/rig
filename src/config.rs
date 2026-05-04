@@ -32,6 +32,8 @@ pub struct Meta {
     pub retries: Option<u32>,
     #[serde(default, rename = "retry-delay")]
     pub retry_delay: Option<f64>,
+    #[serde(default)]
+    pub vars: HashMap<String, String>,
 }
 
 // -- Step --
@@ -284,15 +286,18 @@ impl From<serde_json::Error> for ConfigError {
 
 // -- Parser --
 
-pub fn parse_config(path: &str, vars: &HashMap<String, String>, placeholder: bool) -> Result<Config, ConfigError> {
+pub fn parse_config(path: &str, cli_vars: &HashMap<String, String>, placeholder: bool) -> Result<Config, ConfigError> {
     let content = std::fs::read_to_string(path)?;
     let mut buf = Vec::new();
     io::Read::read_to_end(&mut json_comments::StripComments::new(content.as_bytes()), &mut buf)?;
     let mut json = String::from_utf8_lossy(&buf).into_owned();
 
+    // Extract meta.vars as literal defaults (before any substitution).
+    let meta_vars = extract_meta_vars(&json);
+
     json = json.replace("\\{\\{", "\x00LBRACE\x00");
 
-    // Built-in {{timestamp}} and {{timestamp:FORMAT}} variables
+    // Built-in {{timestamp}} and {{timestamp:FORMAT}} variables.
     let now = chrono::Local::now();
     while let Some(start) = json.find("{{timestamp:") {
         let rest = &json[start + 12..];
@@ -307,7 +312,13 @@ pub fn parse_config(path: &str, vars: &HashMap<String, String>, placeholder: boo
     let default_ts = now.format("%Y%m%dT%H%M%S").to_string();
     json = json.replace("{{timestamp}}", &default_ts);
 
-    for (key, val) in vars {
+    // Merge: meta.vars provide defaults, CLI vars override.
+    let mut final_vars = meta_vars;
+    for (k, v) in cli_vars {
+        final_vars.insert(k.clone(), v.clone());
+    }
+
+    for (key, val) in &final_vars {
         json = json.replace(&format!("{{{{{key}}}}}"), val);
     }
 
@@ -326,6 +337,58 @@ pub fn parse_config(path: &str, vars: &HashMap<String, String>, placeholder: boo
     validate_refs(&config)?;
     validate_markup(&config)?;
     Ok(config)
+}
+
+/// Extract meta.vars from JSON without full parsing.
+/// Returns empty map if not present or malformed.
+fn extract_meta_vars(json: &str) -> HashMap<String, String> {
+    let value: serde_json::Value = match serde_json::from_str(json) {
+        Ok(v) => v,
+        Err(_) => return HashMap::new(),
+    };
+    let vars = match value.pointer("/meta/vars") {
+        Some(serde_json::Value::Object(m)) => m,
+        _ => return HashMap::new(),
+    };
+    vars.iter()
+        .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+        .collect()
+}
+
+/// Scan config text for all {{var}} references (for --vars listing).
+/// Returns a sorted list of unique variable names, excluding {{timestamp}} and {{timestamp:...}}.
+pub fn scan_vars(path: &str) -> Result<Vec<String>, ConfigError> {
+    let content = std::fs::read_to_string(path)?;
+    let mut buf = Vec::new();
+    io::Read::read_to_end(&mut json_comments::StripComments::new(content.as_bytes()), &mut buf)?;
+    let json = String::from_utf8_lossy(&buf).replace("\\{\\{", "");
+
+    let mut vars = std::collections::BTreeSet::new();
+    let mut rest = json.as_str();
+    while let Some(start) = rest.find("{{") {
+        let after = &rest[start + 2..];
+        if let Some(end) = after.find("}}") {
+            let name = &after[..end];
+            // Skip timestamp built-in
+            if name != "timestamp" && !name.starts_with("timestamp:") {
+                vars.insert(name.to_string());
+            }
+            rest = &after[end + 2..];
+        } else {
+            break;
+        }
+    }
+    Ok(vars.into_iter().collect())
+}
+
+/// Extract just meta.vars from a config file (for --vars listing).
+/// Values are returned as literal strings (no substitution performed).
+pub fn read_meta_vars(path: &str) -> Result<HashMap<String, String>, ConfigError> {
+    let content = std::fs::read_to_string(path)?;
+    let mut buf = Vec::new();
+    io::Read::read_to_end(&mut json_comments::StripComments::new(content.as_bytes()), &mut buf)?;
+    let json = String::from_utf8_lossy(&buf).into_owned();
+    Ok(extract_meta_vars(&json))
 }
 
 // -- Validation --
@@ -726,6 +789,62 @@ mod tests {
         let vars = HashMap::from([("project".into(), "my-app".into()), ("greeting".into(), "hello".into())]);
         let cfg = parse_config(path.to_str().unwrap(), &vars, false).unwrap();
         assert_eq!(cfg.name, "my-app");
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn meta_vars_as_default() {
+        let json = r#"{
+            "name": "{{project}}", "version": "1.0.0",
+            "meta": { "vars": { "project": "default-name", "env": "dev" } },
+            "steps": []
+        }"#;
+        let path = std::env::temp_dir().join("rig_meta_vars_test.json");
+        std::fs::write(&path, json).unwrap();
+        let cfg = parse_config(path.to_str().unwrap(), &HashMap::new(), false).unwrap();
+        assert_eq!(cfg.name, "default-name");
+        assert_eq!(cfg.meta.vars.get("env").unwrap(), "dev");
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn cli_vars_override_meta_vars() {
+        let json = r#"{
+            "name": "{{project}}", "version": "1.0.0",
+            "meta": { "vars": { "project": "default-name" } },
+            "steps": []
+        }"#;
+        let path = std::env::temp_dir().join("rig_override_test.json");
+        std::fs::write(&path, json).unwrap();
+        let cli_vars = HashMap::from([("project".into(), "overridden".into())]);
+        let cfg = parse_config(path.to_str().unwrap(), &cli_vars, false).unwrap();
+        assert_eq!(cfg.name, "overridden");
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn scan_vars_finds_all_references() {
+        let json = r#"{
+            "name": "{{project}}", "version": "1.0.0",
+            "steps": [{ "name": "s", "action": { "kind": "shell", "commands": ["echo {{greeting}} {{env}}"] } }]
+        }"#;
+        let path = std::env::temp_dir().join("rig_scan_test.json");
+        std::fs::write(&path, json).unwrap();
+        let vars = scan_vars(path.to_str().unwrap()).unwrap();
+        assert_eq!(vars, vec!["env".to_string(), "greeting".to_string(), "project".to_string()]);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn scan_vars_excludes_timestamp() {
+        let json = r#"{
+            "name": "{{project}}-{{timestamp}}-{{timestamp:%Y}}", "version": "1.0.0",
+            "steps": []
+        }"#;
+        let path = std::env::temp_dir().join("rig_scan_ts_test.json");
+        std::fs::write(&path, json).unwrap();
+        let vars = scan_vars(path.to_str().unwrap()).unwrap();
+        assert_eq!(vars, vec!["project".to_string()]);
         std::fs::remove_file(path).ok();
     }
 

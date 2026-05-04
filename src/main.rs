@@ -37,9 +37,12 @@ struct Cli {
     /// Keep undefined variables as {{var}} instead of failing
     #[arg(long)]
     placeholder: bool,
+    /// List all variables referenced in config with their defaults
+    #[arg(long = "vars")]
+    list_vars: bool,
     /// Set a variable: --set key=value (repeatable, used as {{key}} in config)
     #[arg(long = "set", value_name = "KEY=VALUE")]
-    vars: Vec<String>,
+    set_vars: Vec<String>,
 }
 
 fn fetch_url(url: &str) -> Result<std::path::PathBuf, String> {
@@ -58,7 +61,7 @@ fn fetch_url(url: &str) -> Result<std::path::PathBuf, String> {
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
-    let vars: HashMap<String, String> = cli.vars.iter().filter_map(|s| {
+    let vars: HashMap<String, String> = cli.set_vars.iter().filter_map(|s| {
         let (k, v) = s.split_once('=')?;
         Some((k.to_string(), v.to_string()))
     }).collect();
@@ -77,6 +80,30 @@ fn main() -> ExitCode {
     } else {
         (cli.config.clone(), None)
     };
+
+    if cli.list_vars {
+        let referenced = match config::scan_vars(&config_path) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
+                return ExitCode::FAILURE;
+            }
+        };
+        let meta_vars = config::read_meta_vars(&config_path).unwrap_or_default();
+        if referenced.is_empty() {
+            println!("{}", style::render("<md>no variables referenced</m>"));
+            return ExitCode::SUCCESS;
+        }
+        let name_width = referenced.iter().map(|s| s.len()).max().unwrap_or(0);
+        for name in &referenced {
+            let default = meta_vars.get(name)
+                .map(|v| style::render(&format!("<fc>{v}</f>")))
+                .or_else(|| vars.get(name).map(|v| style::render(&format!("<fc>{v}</f> <md>(from --set)</m>"))))
+                .unwrap_or_else(|| style::render("<fy>(required)</f>"));
+            println!("{}  {default}", style::render(&format!("<mb>{name:<name_width$}</m>")));
+        }
+        return ExitCode::SUCCESS;
+    }
 
     let cfg = match config::parse_config(&config_path, &vars, cli.placeholder) {
         Ok(c) => c,

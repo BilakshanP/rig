@@ -7,7 +7,11 @@
     "description": "Demonstrates every rig feature",
     "meta": {
         "retries": 1,                                   // global: retry failed steps once
-        "log": "/tmp/rig-kitchen-sink-{{timestamp:%Y-%m-%d}}.log" // custom strftime format
+        "log": "/tmp/rig-kitchen-sink-{{timestamp:%Y-%m-%d}}.log", // custom strftime format
+        "vars": {                                       // variable defaults (CLI --set overrides)
+            "env": "dev",
+            "region": "us-east-1"
+        }
     },
 
     "steps": [

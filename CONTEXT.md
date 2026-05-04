@@ -69,6 +69,7 @@ Actions are nested objects with a `kind` discriminator. Steps can have an `id` f
 - **Top-level `meta`** — global defaults for `retries`, `retry-delay`, `silent`, `sudo`, and `log` (run transcript path).
 - **`io` action** — structured logging with levels (`log`, `info`, `warn`, `error`) and optional aml markup. Always succeeds.
 - **`{{timestamp}}`** — built-in variable substituted at startup (default: `%Y%m%dT%H%M%S`). Custom format via `{{timestamp:%Y-%m-%d}}` (strftime syntax).
+- **`meta.vars`** — literal default values for variables. CLI `--set key=value` overrides. Use `--vars` to list all variables referenced in a config with their defaults.
 - **Markup validation** — io actions with `markup: true` are validated at parse time; invalid aml fails `--validate`.
 - **Cycle protection** — hard limit of 64 entries per step (not user-configurable).
 - **Tilde expansion** — `~` expands to `$HOME` in all path fields.

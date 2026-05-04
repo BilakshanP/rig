@@ -243,6 +243,45 @@ rig setup.json --set project=my-app --set env=prod
 
 Undefined variables fail immediately at startup. Use `\{\{` to escape literal double braces.
 
+### Defaults via `meta.vars`
+
+Set default values for variables under `meta.vars`. CLI `--set` overrides them:
+
+```jsonc
+{
+  "name": "setup-{{project}}",
+  "meta": {
+    "vars": {
+      "project": "my-app",
+      "env": "dev"
+    }
+  },
+  "steps": [...]
+}
+```
+
+```bash
+rig setup.json                    # uses defaults (project=my-app, env=dev)
+rig setup.json --set env=prod     # overrides env, keeps default project
+```
+
+Values in `meta.vars` are literal strings — no substitution is performed inside them.
+
+### Listing variables
+
+Use `--vars` to list all variables referenced in a config along with their defaults:
+
+```bash
+rig setup.json --vars
+```
+
+Output:
+```
+project  my-app
+env      dev
+region   (required)
+```
+
 ### Built-in Variables
 
 `{{timestamp}}` is substituted at startup with the current time in `%Y%m%dT%H%M%S` format (e.g., `20260504T152259`). Use a custom strftime format with `{{timestamp:FORMAT}}`:
