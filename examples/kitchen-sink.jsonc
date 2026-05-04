@@ -1,7 +1,7 @@
 {
     "$schema": "../schema.json",
 
-    // ── Kitchen sink: every rig feature in one config ──
+    // -- Kitchen sink: every rig feature in one config --
     "name": "kitchen-sink",
     "version": "1.0.0",
     "description": "Demonstrates every rig feature",
@@ -12,13 +12,13 @@
 
     "steps": [
 
-        // ── io: structured logging ──
+        // -- io: structured logging --
         {
             "name": "Start",
             "action": { "kind": "io", "level": "info", "message": "<fc>kitchen-sink</f> demo starting at <mb>{{timestamp:%H:%M:%S}}</m>", "markup": true }
         },
 
-        // ── shell: basic command ──
+        // -- shell: basic command --
         {
             "id": "greet",
             "name": "Greet",
@@ -28,7 +28,7 @@
             }
         },
 
-        // ── shell: dir, env, sudo, silent, retries ──
+        // -- shell: dir, env, sudo, silent, retries --
         {
             "id": "install-tools",
             "name": "Install dev tools",
@@ -49,7 +49,7 @@
             }
         },
 
-        // ── on-success / on-failure ──
+        // -- on-success / on-failure --
         {
             "id": "check-node",
             "name": "Check Node.js",
@@ -57,12 +57,12 @@
                 "kind": "shell",
                 "commands": ["node --version"]
             },
-            "on-success": "setup-project",              // exit 0 → jump to setup
-            "on-failure": "install-node",               // non-zero → install it
+            "on-success": "setup-project",              // exit 0 -> jump to setup
+            "on-failure": "install-node",               // non-zero -> install it
             "meta": { "silent": ["stdout", "stderr"] }
         },
 
-        // ── on-return with exact code, wildcard, and array of refs ──
+        // -- on-return with exact code, wildcard, and array of refs --
         {
             "id": "health-check",
             "name": "Service health check",
@@ -71,13 +71,13 @@
                 "commands": ["curl -sf http://localhost:8080/health"]
             },
             "on-return": {
-                "0": "setup-project",                   // healthy → continue
-                "7": ["log-warning", "install-node"],   // connection refused → array of handlers
-                "_": "log-warning"                      // anything else → log it
+                "0": "setup-project",                   // healthy -> continue
+                "7": ["log-warning", "install-node"],   // connection refused -> array of handlers
+                "_": "log-warning"                      // anything else -> log it
             }
         },
 
-        // ── then: inline + ref sub-steps ──
+        // -- then: inline + ref sub-steps --
         {
             "id": "setup-project",
             "name": "Setup project",
@@ -102,7 +102,7 @@
             "meta": { "optional": true }                // only runs when referenced
         },
 
-        // ── git: clone with on-conflict ──
+        // -- git: clone with on-conflict --
         {
             "id": "clone-dotfiles",
             "name": "Clone dotfiles",
@@ -114,7 +114,7 @@
             }
         },
 
-        // ── fs: create dirs (multiple paths) ──
+        // -- fs: create dirs (multiple paths) --
         {
             "id": "create-dirs",
             "name": "Create directories",
@@ -132,7 +132,7 @@
             }
         },
 
-        // ── fs: create file with inline content ──
+        // -- fs: create file with inline content --
         {
             "id": "write-config",
             "name": "Write default config",
@@ -147,7 +147,7 @@
             }
         },
 
-        // ── fs: symlink ──
+        // -- fs: symlink --
         {
             "id": "link-config",
             "name": "Symlink config",
@@ -161,7 +161,7 @@
             }
         },
 
-        // ── fs: copy with execute condition ──
+        // -- fs: copy with execute condition --
         {
             "id": "copy-template",
             "name": "Copy template",
@@ -176,7 +176,7 @@
             }
         },
 
-        // ── fs: move ──
+        // -- fs: move --
         {
             "id": "move-backup",
             "name": "Move backup",
@@ -190,7 +190,7 @@
             }
         },
 
-        // ── fs: delete (recurse) ──
+        // -- fs: delete (recurse) --
         {
             "id": "cleanup",
             "name": "Cleanup demo artifacts",
@@ -204,7 +204,7 @@
             }
         },
 
-        // ── fallible step ──
+        // -- fallible step --
         {
             "id": "log-warning",
             "name": "Log warning",
@@ -218,7 +218,7 @@
             }
         },
 
-        // ── optional handler ──
+        // -- optional handler --
         {
             "id": "install-node",
             "name": "Install Node.js",
@@ -229,7 +229,7 @@
             "meta": { "optional": true }
         },
 
-        // ── io: all levels ──
+        // -- io: all levels --
         {
             "name": "Log debug",
             "action": { "kind": "io", "level": "log", "message": "Debug: checking system state" }

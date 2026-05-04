@@ -4,8 +4,8 @@
     // Set up a Python project with uv, hatchling, basedpyright, and ruff.
     // Usage: rig examples/python-project.jsonc --set name=my-tool --set package=my_tool
     //
-    // {{name}}    — project/CLI name (kebab-case, e.g. "my-tool")
-    // {{package}} — Python package name (snake_case, e.g. "my_tool")
+    // {{name}}    - project/CLI name (kebab-case, e.g. "my-tool")
+    // {{package}} - Python package name (snake_case, e.g. "my_tool")
 
     "name": "python-project-{{name}}",
     "version": "1.0.0",
@@ -17,7 +17,7 @@
             "action": { "kind": "io", "level": "info", "message": "Setting up Python project: {{name}}" }
         },
 
-        // ── Create directory structure ──
+        // -- Create directory structure --
         {
             "id": "create-dirs",
             "name": "Create project directories",
@@ -35,7 +35,7 @@
             }
         },
 
-        // ── Write config files ──
+        // -- Write config files --
         {
             "id": "pyproject",
             "name": "Write pyproject.toml",
@@ -85,7 +85,7 @@
             }
         },
 
-        // ── Write source files ──
+        // -- Write source files --
         {
             "id": "init",
             "name": "Write __init__.py",
@@ -123,7 +123,7 @@
             }
         },
 
-        // ── Write test file ──
+        // -- Write test file --
         {
             "id": "test",
             "name": "Write test stub",
@@ -137,7 +137,7 @@
             }
         },
 
-        // ── Write CI workflow ──
+        // -- Write CI workflow --
         {
             "id": "ci",
             "name": "Write GitHub Actions CI",
@@ -151,7 +151,7 @@
             }
         },
 
-        // ── Initialize git and install deps ──
+        // -- Initialize git and install deps --
         {
             "id": "git-init",
             "name": "Initialize git repo",
@@ -193,7 +193,7 @@
             "meta": { "optional": true }
         },
 
-        // ── Verify ──
+        // -- Verify --
         {
             "id": "verify",
             "name": "Run type checker",

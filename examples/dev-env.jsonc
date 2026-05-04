@@ -1,11 +1,11 @@
 {
-    // ── Top-level config ──
+    // -- Top-level config --
     "name": "My Dev Environment",
     "version": "1.0.0",
     "description": "Full example showing all rig features",
 
     "steps": [
-        // ── Shell with on-success/on-failure/on-return ──
+        // -- Shell with on-success/on-failure/on-return --
         {
             "id": "install-tools",
             "name": "Install dev tools",
@@ -39,7 +39,7 @@
             }
         },
 
-        // ── Git with on-conflict ──
+        // -- Git with on-conflict --
         {
             "id": "clone-dotfiles",
             "name": "Clone dotfiles",
@@ -51,7 +51,7 @@
             }
         },
 
-        // ── FS: symlink ──
+        // -- FS: symlink --
         {
             "id": "link-configs",
             "name": "Symlink configs",
@@ -65,7 +65,7 @@
             }
         },
 
-        // ── FS: create (multiple paths) ──
+        // -- FS: create (multiple paths) --
         {
             "id": "create-dirs",
             "name": "Create project dirs",
@@ -79,7 +79,7 @@
             }
         },
 
-        // ── FS: create with content ──
+        // -- FS: create with content --
         {
             "id": "create-config",
             "name": "Create default config",
@@ -94,7 +94,7 @@
             }
         },
 
-        // ── FS: copy ──
+        // -- FS: copy --
         {
             "id": "copy-template",
             "name": "Copy template config",
@@ -109,7 +109,7 @@
             }
         },
 
-        // ── FS: move ──
+        // -- FS: move --
         {
             "id": "move-old-config",
             "name": "Move old config to backup",
@@ -123,7 +123,7 @@
             }
         },
 
-        // ── FS: delete ──
+        // -- FS: delete --
         {
             "id": "delete-cache",
             "name": "Delete build cache",
@@ -137,7 +137,7 @@
             }
         },
 
-        // ── Optional steps (only run when referenced) ──
+        // -- Optional steps (only run when referenced) --
         {
             "id": "handle-error",
             "name": "Error handler",

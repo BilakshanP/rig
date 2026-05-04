@@ -67,7 +67,7 @@ impl Runner {
     }
 
     fn preflight_sudo(&self) -> Result<(), ExecError> {
-        println!("{}", style::render("<fy>sudo required — validating credentials...</f>"));
+        println!("{}", style::render("<fy>sudo required - validating credentials...</f>"));
         let status = Command::new("sudo").arg("-v").status()?;
         if !status.success() {
             return Err(ExecError::Command("sudo authentication failed".into()));
@@ -86,7 +86,7 @@ impl Runner {
             if *count > MAX_ENTRIES { return Err(ExecError::CycleDetected(step.name.clone())); }
         }
 
-        println!("{indent}{}", style::render(&format!("<fg>→</f> <mb>{}</m>", step.name)));
+        println!("{indent}{}", style::render(&format!("<fg>-></f> <mb>{}</m>", step.name)));
 
         let max_retries = step.meta.retries.or(self.config_meta.retries).unwrap_or(0);
         let mut last_err = None;
@@ -105,7 +105,7 @@ impl Runner {
 
             match self.exec_action(&step.action, &step.meta, &indent, depth) {
                 Ok(code) => {
-                    // Resolve handler: on-return[code] → on-return["_"] → on-success
+                    // Resolve handler: on-return[code] -> on-return["_"] -> on-success
                     let handler = self.resolve_handler(step, code, true);
                     if let Some(refs) = handler {
                         self.run_step_refs(refs, depth + 1)?;
@@ -118,12 +118,12 @@ impl Runner {
             }
         }
 
-        // All retries exhausted — resolve failure handler
+        // All retries exhausted - resolve failure handler
         let err = last_err.unwrap();
         let handler = self.resolve_handler(step, -1, false);
         if let Some(refs) = handler {
             self.run_step_refs(refs, depth + 1)?;
-            // Handler caught it — run then steps
+            // Handler caught it - run then steps
             for child in &step.then { self.run_child(child, depth + 1)?; }
             return Ok(());
         }
@@ -211,7 +211,7 @@ impl Runner {
         }
     }
 
-    // ── Shell ──
+    // -- Shell --
 
     fn exec_shell(
         &self,
@@ -252,7 +252,7 @@ impl Runner {
         Ok(last_code)
     }
 
-    // ── IO ──
+    // -- IO --
 
     fn exec_io(&self, level: &IoLevel, message: &str, markup: bool, indent: &str) {
         let text = if markup { style::render(message) } else { message.to_string() };
@@ -274,7 +274,7 @@ impl Runner {
         self.write_log(&format!("[{prefix}] {plain}"));
     }
 
-    // ── Git ──
+    // -- Git --
 
     fn exec_git(&self, repo: &str, dest: &str, on_conflict: &GitOnConflict, meta: &Meta, indent: &str) -> Result<(), ExecError> {
         let dest_path = expand_tilde(dest);
@@ -282,7 +282,7 @@ impl Runner {
 
         if self.dry_run {
             if exists {
-                println!("{indent}  [dry-run] dest {} exists → {on_conflict:?}", dest_path.display());
+                println!("{indent}  [dry-run] dest {} exists -> {on_conflict:?}", dest_path.display());
             } else {
                 println!("{indent}  [dry-run] git clone {repo} {}", dest_path.display());
             }
@@ -314,7 +314,7 @@ impl Runner {
         Ok(())
     }
 
-    // ── FS ──
+    // -- FS --
 
     fn exec_fs(&self, op: &FsOp, if_exists: Option<&Condition>, if_not_exists: Option<&Condition>, indent: &str) -> Result<(), ExecError> {
         match op {
@@ -362,7 +362,7 @@ impl Runner {
         let src = expand_tilde(from);
         let dst = expand_tilde(to);
         if self.dry_run {
-            println!("{indent}  [dry-run] symlink {} → {}", src.display(), dst.display());
+            println!("{indent}  [dry-run] symlink {} -> {}", src.display(), dst.display());
             return Ok(());
         }
         if dst.exists() || dst.is_symlink() {
@@ -373,7 +373,7 @@ impl Runner {
             }
         }
         std::os::unix::fs::symlink(&src, &dst)?;
-        println!("{indent}  {}", style::render(&format!("<fg>symlinked</f> {} → {}", src.display(), dst.display())));
+        println!("{indent}  {}", style::render(&format!("<fg>symlinked</f> {} -> {}", src.display(), dst.display())));
         Ok(())
     }
 
@@ -381,7 +381,7 @@ impl Runner {
         let src = expand_tilde(from);
         let dst = expand_tilde(to);
         if self.dry_run {
-            println!("{indent}  [dry-run] copy {} → {}", src.display(), dst.display());
+            println!("{indent}  [dry-run] copy {} -> {}", src.display(), dst.display());
             return Ok(());
         }
         if !src.exists() { return self.handle_not_exists(if_not_exists, &src, indent); }
@@ -393,7 +393,7 @@ impl Runner {
             }
         }
         std::fs::copy(&src, &dst)?;
-        println!("{indent}  {}", style::render(&format!("<fg>copied</f> {} → {}", src.display(), dst.display())));
+        println!("{indent}  {}", style::render(&format!("<fg>copied</f> {} -> {}", src.display(), dst.display())));
         Ok(())
     }
 
@@ -401,7 +401,7 @@ impl Runner {
         let src = expand_tilde(from);
         let dst = expand_tilde(to);
         if self.dry_run {
-            println!("{indent}  [dry-run] move {} → {}", src.display(), dst.display());
+            println!("{indent}  [dry-run] move {} -> {}", src.display(), dst.display());
             return Ok(());
         }
         if !src.exists() { return self.handle_not_exists(if_not_exists, &src, indent); }
@@ -413,7 +413,7 @@ impl Runner {
             }
         }
         std::fs::rename(&src, &dst)?;
-        println!("{indent}  {}", style::render(&format!("<fg>moved</f> {} → {}", src.display(), dst.display())));
+        println!("{indent}  {}", style::render(&format!("<fg>moved</f> {} -> {}", src.display(), dst.display())));
         Ok(())
     }
 
@@ -438,7 +438,7 @@ impl Runner {
         Ok(())
     }
 
-    // ── Condition helpers ──
+    // -- Condition helpers --
 
     fn handle_condition(&self, cond: Option<&Condition>, _indent: &str) -> Result<CondResult, ExecError> {
         match cond {
@@ -462,7 +462,7 @@ impl Runner {
         }
     }
 
-    // ── Dry-run audit ──
+    // -- Dry-run audit --
 
     pub fn dry_run_audit(&self, config: &Config, steps: &[Step]) {
         // Top-level config info
@@ -494,7 +494,7 @@ impl Runner {
 
     fn audit_step(&self, step: &Step, depth: usize) {
         let indent = "  ".repeat(depth);
-        let mut header = format!("{indent}<fg>→</f> <mb>{}</m>", step.name);
+        let mut header = format!("{indent}<fg>-></f> <mb>{}</m>", step.name);
         if let Some(id) = &step.id { header.push_str(&format!(" <md>(id: <fc>{id}</f>)</m>")); }
         let mut flags = Vec::new();
         if step.meta.optional { flags.push("<fy>optional</f>".to_string()); }
@@ -525,7 +525,7 @@ impl Runner {
                 }
             }
             Action::Git { repo, dest, on_conflict } => {
-                println!("{ai}{}", style::render(&format!("<md>git clone</m> {repo} → {dest}")));
+                println!("{ai}{}", style::render(&format!("<md>git clone</m> {repo} -> {dest}")));
                 println!("{ai}{}", style::render(&format!("<md>on-conflict:</m> {on_conflict:?}")));
             }
             Action::Fs { op, if_exists, if_not_exists } => {
@@ -538,9 +538,9 @@ impl Runner {
                         if *recurse { println!("{ai}{}", style::render("<md>recurse:</m> true")); }
                         if let Some(c) = content { println!("{ai}{}", style::render(&format!("<md>content:</m> {c:?}"))); }
                     }
-                    FsOp::Symlink { from, to } => println!("{ai}{}", style::render(&format!("<md>symlink</m> {from} → {to}"))),
-                    FsOp::Copy { from, to } => println!("{ai}{}", style::render(&format!("<md>copy</m> {from} → {to}"))),
-                    FsOp::Move { from, to } => println!("{ai}{}", style::render(&format!("<md>move</m> {from} → {to}"))),
+                    FsOp::Symlink { from, to } => println!("{ai}{}", style::render(&format!("<md>symlink</m> {from} -> {to}"))),
+                    FsOp::Copy { from, to } => println!("{ai}{}", style::render(&format!("<md>copy</m> {from} -> {to}"))),
+                    FsOp::Move { from, to } => println!("{ai}{}", style::render(&format!("<md>move</m> {from} -> {to}"))),
                     FsOp::Delete { path, recurse } => {
                         for p in path_list(path) { println!("{ai}{}", style::render(&format!("<md>delete:</m> {p}"))); }
                         if *recurse { println!("{ai}{}", style::render("<md>recurse:</m> true")); }
@@ -560,7 +560,7 @@ impl Runner {
         if let Some(refs) = &step.on_failure { println!("{ai}{}", style::render(&format!("<md>on-failure:</m> {}", step_refs_label(refs)))); }
         if let Some(map) = &step.on_return {
             println!("{ai}{}", style::render("<md>on-return:</m>"));
-            for (code, refs) in map { println!("{ai}  {}", style::render(&format!("{code} → <fc>{}</f>", step_refs_label(refs)))); }
+            for (code, refs) in map { println!("{ai}  {}", style::render(&format!("{code} -> <fc>{}</f>", step_refs_label(refs)))); }
         }
 
         // then
@@ -568,7 +568,7 @@ impl Runner {
             println!("{ai}{}", style::render("<md>then:</m>"));
             for child in &step.then {
                 match child {
-                    ChildRef::Id(id) => println!("{ai}  {}", style::render(&format!("→ <fc>{id}</f>"))),
+                    ChildRef::Id(id) => println!("{ai}  {}", style::render(&format!("-> <fc>{id}</f>"))),
                     ChildRef::Inline(s) => self.audit_step(s, depth + 1),
                 }
             }
@@ -577,7 +577,7 @@ impl Runner {
     }
 }
 
-// ── Helpers ──
+// -- Helpers --
 
 enum CondResult { Skip, Proceed, Panic }
 

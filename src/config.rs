@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::io;
 
-// ── Top-level config ──
+// -- Top-level config --
 
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
@@ -17,7 +17,7 @@ pub struct Config {
     pub steps: Vec<Step>,
 }
 
-// ── Top-level meta ──
+// -- Top-level meta --
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[allow(dead_code)]
@@ -34,7 +34,7 @@ pub struct ConfigMeta {
     pub retry_delay: Option<f64>,
 }
 
-// ── Step ──
+// -- Step --
 
 #[derive(Debug, Clone, Deserialize)]
 #[allow(dead_code)]
@@ -57,7 +57,7 @@ pub struct Step {
     pub meta: Meta,
 }
 
-// ── Step references ──
+// -- Step references --
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
@@ -80,7 +80,7 @@ pub enum ChildRef {
     Inline(Box<Step>),
 }
 
-// ── Meta ──
+// -- Meta --
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[allow(dead_code)]
@@ -106,7 +106,7 @@ pub enum Silent {
     Stderr,
 }
 
-// ── Action (tagged by "kind") ──
+// -- Action (tagged by "kind") --
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
@@ -140,7 +140,7 @@ pub enum Action {
     },
 }
 
-// ── IO ──
+// -- IO --
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -151,7 +151,7 @@ pub enum IoLevel {
     Error,
 }
 
-// ── Git ──
+// -- Git --
 
 #[derive(Debug, Clone, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -162,7 +162,7 @@ pub enum GitOnConflict {
     Fail,
 }
 
-// ── FS ──
+// -- FS --
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -200,7 +200,7 @@ pub enum PathSpec {
     Multiple(Vec<String>),
 }
 
-// ── Condition (if-exists / if-not-exists) ──
+// -- Condition (if-exists / if-not-exists) --
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
@@ -218,7 +218,7 @@ pub enum ConditionAction {
     Panic,
 }
 
-// ── Errors ──
+// -- Errors --
 
 #[derive(Debug)]
 pub enum ConfigError {
@@ -251,7 +251,7 @@ impl From<serde_json::Error> for ConfigError {
     fn from(e: serde_json::Error) -> Self { Self::Parse(e) }
 }
 
-// ── Parser ──
+// -- Parser --
 
 pub fn parse_config(path: &str, vars: &HashMap<String, String>) -> Result<Config, ConfigError> {
     let content = std::fs::read_to_string(path)?;
@@ -298,7 +298,7 @@ pub fn parse_config(path: &str, vars: &HashMap<String, String>) -> Result<Config
     Ok(config)
 }
 
-// ── Validation ──
+// -- Validation --
 
 fn validate_unique_ids(config: &Config) -> Result<(), ConfigError> {
     let mut seen = std::collections::HashSet::new();
@@ -323,7 +323,7 @@ fn collect_ids(step: &Step, seen: &mut std::collections::HashSet<String>) -> Res
     })
 }
 
-/// Build a map of id → Step for reference resolution.
+/// Build a map of id -> Step for reference resolution.
 pub fn build_step_index(config: &Config) -> HashMap<String, Step> {
     let mut map = HashMap::new();
     for step in &config.steps { index_step(step, &mut map); }
