@@ -1,0 +1,212 @@
+{
+    "$schema": "../schema.json",
+
+    // Set up a Python project with uv, hatchling, basedpyright, and ruff.
+    // Usage: rig examples/python-project.jsonc --set name=my-tool --set package=my_tool
+    //
+    // {{name}}    — project/CLI name (kebab-case, e.g. "my-tool")
+    // {{package}} — Python package name (snake_case, e.g. "my_tool")
+
+    "name": "python-project-{{name}}",
+    "version": "1.0.0",
+    "description": "Bootstrap a Python project with uv + hatchling + basedpyright + ruff",
+
+    "steps": [
+        {
+            "name": "Start",
+            "action": { "kind": "io", "level": "info", "message": "Setting up Python project: {{name}}" }
+        },
+
+        // ── Create directory structure ──
+        {
+            "id": "create-dirs",
+            "name": "Create project directories",
+            "action": {
+                "kind": "fs",
+                "create": {
+                    "path": [
+                        "{{name}}/src/{{package}}/",
+                        "{{name}}/tests/",
+                        "{{name}}/.github/workflows/"
+                    ],
+                    "recurse": true
+                },
+                "if-exists": "skip"
+            }
+        },
+
+        // ── Write config files ──
+        {
+            "id": "pyproject",
+            "name": "Write pyproject.toml",
+            "action": {
+                "kind": "fs",
+                "create": {
+                    "path": "{{name}}/pyproject.toml",
+                    "content": "[project]\nname = \"{{name}}\"\nversion = \"0.1.0\"\ndescription = \"\"\nrequires-python = \">=3.14\"\ndependencies = []\n\n[project.scripts]\n{{name}} = \"{{package}}.cli:main\"\n\n[build-system]\nrequires = [\"hatchling\"]\nbuild-backend = \"hatchling.build\"\n\n[tool.hatch.build.targets.wheel]\npackages = [\"src/{{package}}\"]\n\n[dependency-groups]\ndev = [\n    \"basedpyright>=1.39.2\",\n    \"ruff>=0.15.11\",\n]\n"
+                },
+                "if-exists": "skip"
+            }
+        },
+        {
+            "id": "pyrightconfig",
+            "name": "Write pyrightconfig.json",
+            "action": {
+                "kind": "fs",
+                "create": {
+                    "path": "{{name}}/pyrightconfig.json",
+                    "content": "{\n  \"include\": [\"src\"],\n  \"venvPath\": \".\",\n  \"venv\": \".venv\",\n  \"typeCheckingMode\": \"basic\"\n}\n"
+                },
+                "if-exists": "skip"
+            }
+        },
+        {
+            "id": "python-version",
+            "name": "Write .python-version",
+            "action": {
+                "kind": "fs",
+                "create": {
+                    "path": "{{name}}/.python-version",
+                    "content": "3.14\n"
+                },
+                "if-exists": "skip"
+            }
+        },
+        {
+            "id": "gitignore",
+            "name": "Write .gitignore",
+            "action": {
+                "kind": "fs",
+                "create": {
+                    "path": "{{name}}/.gitignore",
+                    "content": "# Python-generated files\n__pycache__/\n*.py[oc]\nbuild/\ndist/\nwheels/\n*.egg-info\n\n# Virtual environments\n.venv\n"
+                },
+                "if-exists": "skip"
+            }
+        },
+
+        // ── Write source files ──
+        {
+            "id": "init",
+            "name": "Write __init__.py",
+            "action": {
+                "kind": "fs",
+                "create": {
+                    "path": "{{name}}/src/{{package}}/__init__.py",
+                    "content": ""
+                },
+                "if-exists": "skip"
+            }
+        },
+        {
+            "id": "main",
+            "name": "Write __main__.py",
+            "action": {
+                "kind": "fs",
+                "create": {
+                    "path": "{{name}}/src/{{package}}/__main__.py",
+                    "content": "from {{package}}.cli import main\n\nmain()\n"
+                },
+                "if-exists": "skip"
+            }
+        },
+        {
+            "id": "cli",
+            "name": "Write cli.py",
+            "action": {
+                "kind": "fs",
+                "create": {
+                    "path": "{{name}}/src/{{package}}/cli.py",
+                    "content": "import argparse\n\n\ndef main() -> None:\n    parser = argparse.ArgumentParser(description=\"{{name}}\")\n    _ = parser.parse_args()\n    print(\"Hello from {{name}}!\")\n"
+                },
+                "if-exists": "skip"
+            }
+        },
+
+        // ── Write test file ──
+        {
+            "id": "test",
+            "name": "Write test stub",
+            "action": {
+                "kind": "fs",
+                "create": {
+                    "path": "{{name}}/tests/test_cli.py",
+                    "content": "import unittest\n\n\nclass TestCli(unittest.TestCase):\n    def test_import(self) -> None:\n        import {{package}}.cli\n        self.assertTrue(hasattr({{package}}.cli, \"main\"))\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n"
+                },
+                "if-exists": "skip"
+            }
+        },
+
+        // ── Write CI workflow ──
+        {
+            "id": "ci",
+            "name": "Write GitHub Actions CI",
+            "action": {
+                "kind": "fs",
+                "create": {
+                    "path": "{{name}}/.github/workflows/ci.yml",
+                    "content": "name: CI\n\non:\n  push:\n    branches: [main]\n  pull_request:\n    branches: [main]\n\njobs:\n  check:\n    runs-on: ubuntu-latest\n    permissions:\n      contents: write\n    steps:\n      - uses: actions/checkout@v4\n\n      - uses: astral-sh/setup-uv@v6\n\n      - run: uv sync --dev\n\n      - name: Format & lint fix\n        run: |\n          uv run ruff format src/\n          uv run ruff check --fix src/\n\n      - name: Commit formatting changes\n        uses: stefanzweifel/git-auto-commit-action@v5\n        with:\n          commit_message: \"Formatted: code with ruff\"\n\n      - run: uv run basedpyright\n"
+                },
+                "if-exists": "skip"
+            }
+        },
+
+        // ── Initialize git and install deps ──
+        {
+            "id": "git-init",
+            "name": "Initialize git repo",
+            "action": {
+                "kind": "shell",
+                "commands": ["git init"],
+                "dir": "{{name}}"
+            }
+        },
+        {
+            "id": "check-uv",
+            "name": "Check if uv is installed",
+            "action": {
+                "kind": "shell",
+                "commands": ["uv --version"]
+            },
+            "on-success": "uv-sync",
+            "on-failure": "install-uv",
+            "meta": { "silent": ["stdout"] }
+        },
+        {
+            "id": "install-uv",
+            "name": "Install uv",
+            "action": {
+                "kind": "shell",
+                "commands": ["curl -LsSf https://astral.sh/uv/install.sh | sh"]
+            },
+            "then": ["uv-sync"],
+            "meta": { "optional": true }
+        },
+        {
+            "id": "uv-sync",
+            "name": "Install dependencies with uv",
+            "action": {
+                "kind": "shell",
+                "commands": ["uv sync --dev"],
+                "dir": "{{name}}"
+            },
+            "meta": { "optional": true }
+        },
+
+        // ── Verify ──
+        {
+            "id": "verify",
+            "name": "Run type checker",
+            "action": {
+                "kind": "shell",
+                "commands": ["uv run basedpyright"],
+                "dir": "{{name}}"
+            },
+            "meta": { "fallible": true }
+        },
+        {
+            "name": "Done",
+            "action": { "kind": "io", "level": "info", "message": "<fg>✓ Project {{name}} ready!</f> cd {{name}} && uv run {{name}}", "markup": true }
+        }
+    ]
+}
