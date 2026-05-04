@@ -414,18 +414,25 @@ impl Runner {
 
     // ── Dry-run audit ──
 
-    pub fn dry_run_audit(&self, steps: &[Step]) {
+    pub fn dry_run_audit(&self, config: &Config, steps: &[Step]) {
+        // Top-level config info
+        println!("{}", style::render(&format!("<mb>version:</m> {}", config.version)));
+        if self.verbose
+            && let Some(desc) = &config.description
+        {
+            println!("{}", style::render(&format!("<md>{desc}</m>")));
+        }
+        if let Some(r) = config.retries { println!("{}", style::render(&format!("<mb>retries:</m> {r}"))); }
+
         let optional_count = steps.iter().filter(|s| s.meta.optional).count();
         let fallible_count = steps.iter().filter(|s| s.meta.fallible).count();
-        println!("{}", style::render(&format!(
-            "<md>({} steps, {} optional, {} fallible)</m>\n",
-            steps.len(), optional_count, fallible_count
-        )));
+        let sudo_count = steps.iter().filter(|s| s.meta.sudo).count();
+        let mut counts = format!("{} steps, {} optional, {} fallible", steps.len(), optional_count, fallible_count);
+        if sudo_count > 0 { counts.push_str(&format!(", {} sudo", sudo_count)); }
+        println!("{}", style::render(&format!("<md>({counts})</m>\n")));
+
         for step in steps { self.audit_step(step, 0); }
-        println!("{}", style::render(&format!(
-            "<mb>Summary:</m> {} steps ({} optional, {} fallible)",
-            steps.len(), optional_count, fallible_count
-        )));
+        println!("{}", style::render(&format!("<mb>Summary:</m> {counts}")));
     }
 
     fn audit_step(&self, step: &Step, depth: usize) {
@@ -444,6 +451,11 @@ impl Runner {
         if let Some(d) = step.meta.retry_delay { flags.push(format!("<fy>retry-delay: {d}s</f>")); }
         for f in &flags { header.push_str(&format!(" [{f}]")); }
         println!("{}", style::render(&header));
+        if self.verbose
+            && let Some(desc) = &step.description
+        {
+            println!("{indent}  {}", style::render(&format!("<md>{desc}</m>")));
+        }
 
         let ai = format!("{indent}    ");
         match &step.action {

@@ -64,14 +64,14 @@ fn main() -> ExitCode {
         println!("{}", style::render(&format!("<fc>[dry-run]</f> <mb>{}</m> <md>({cwd})</m>", cfg.name)));
         if let Some(id) = &cli.only {
             match runner.index.get(id) {
-                Some(step) => runner.dry_run_audit(std::slice::from_ref(step)),
+                Some(step) => runner.dry_run_audit(&cfg, std::slice::from_ref(step)),
                 None => {
                     eprintln!("{}", style::render(&format!("<fr>error:</f> no step with id '<fc>{id}</f>'")));
                     return ExitCode::FAILURE;
                 }
             }
         } else {
-            runner.dry_run_audit(&cfg.steps);
+            runner.dry_run_audit(&cfg, &cfg.steps);
         }
         return ExitCode::SUCCESS;
     }
