@@ -34,6 +34,9 @@ struct Cli {
     /// Expand then/handler sub-steps (optional depth limit, default: unlimited)
     #[arg(long, num_args = 0..=1, default_missing_value = "0")]
     depth: Option<u32>,
+    /// Keep undefined variables as {{var}} instead of failing
+    #[arg(long)]
+    placeholder: bool,
     /// Set a variable: --set key=value (repeatable, used as {{key}} in config)
     #[arg(long = "set", value_name = "KEY=VALUE")]
     vars: Vec<String>,
@@ -272,7 +275,7 @@ fn main() -> ExitCode {
         (cli.config.clone(), None)
     };
 
-    let cfg = match config::parse_config(&config_path, &vars) {
+    let cfg = match config::parse_config(&config_path, &vars, cli.placeholder) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));

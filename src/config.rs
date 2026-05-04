@@ -253,7 +253,7 @@ impl From<serde_json::Error> for ConfigError {
 
 // -- Parser --
 
-pub fn parse_config(path: &str, vars: &HashMap<String, String>) -> Result<Config, ConfigError> {
+pub fn parse_config(path: &str, vars: &HashMap<String, String>, placeholder: bool) -> Result<Config, ConfigError> {
     let content = std::fs::read_to_string(path)?;
     let mut buf = Vec::new();
     io::Read::read_to_end(&mut json_comments::StripComments::new(content.as_bytes()), &mut buf)?;
@@ -282,7 +282,8 @@ pub fn parse_config(path: &str, vars: &HashMap<String, String>) -> Result<Config
         json = json.replace(&format!("{{{{{key}}}}}"), val);
     }
 
-    if let Some(pos) = json.find("{{")
+    if !placeholder
+        && let Some(pos) = json.find("{{")
         && let Some(end) = json[pos + 2..].find("}}")
     {
         let var_name = &json[pos + 2..pos + 2 + end];
@@ -718,7 +719,7 @@ mod tests {
         let dir = std::env::temp_dir();
         let path = dir.join("rig_dup_test.json");
         std::fs::write(&path, json).unwrap();
-        assert!(matches!(parse_config(path.to_str().unwrap(), &HashMap::new()), Err(ConfigError::DuplicateId(_))));
+        assert!(matches!(parse_config(path.to_str().unwrap(), &HashMap::new(), false), Err(ConfigError::DuplicateId(_))));
         std::fs::remove_file(path).ok();
     }
 
@@ -735,7 +736,7 @@ mod tests {
         let dir = std::env::temp_dir();
         let path = dir.join("rig_unknownref_test.json");
         std::fs::write(&path, json).unwrap();
-        assert!(matches!(parse_config(path.to_str().unwrap(), &HashMap::new()), Err(ConfigError::UnknownRef(_))));
+        assert!(matches!(parse_config(path.to_str().unwrap(), &HashMap::new(), false), Err(ConfigError::UnknownRef(_))));
         std::fs::remove_file(path).ok();
     }
 
@@ -752,7 +753,7 @@ mod tests {
         let dir = std::env::temp_dir();
         let path = dir.join("rig_unknownsuccess_test.json");
         std::fs::write(&path, json).unwrap();
-        assert!(matches!(parse_config(path.to_str().unwrap(), &HashMap::new()), Err(ConfigError::UnknownRef(_))));
+        assert!(matches!(parse_config(path.to_str().unwrap(), &HashMap::new(), false), Err(ConfigError::UnknownRef(_))));
         std::fs::remove_file(path).ok();
     }
 
@@ -768,7 +769,7 @@ mod tests {
         let dir = std::env::temp_dir();
         let path = dir.join("rig_validref_test.json");
         std::fs::write(&path, json).unwrap();
-        assert!(parse_config(path.to_str().unwrap(), &HashMap::new()).is_ok());
+        assert!(parse_config(path.to_str().unwrap(), &HashMap::new(), false).is_ok());
         std::fs::remove_file(path).ok();
     }
 
@@ -784,7 +785,7 @@ mod tests {
         let dir = std::env::temp_dir();
         let path = dir.join("rig_cycle_test.json");
         std::fs::write(&path, json).unwrap();
-        assert!(parse_config(path.to_str().unwrap(), &HashMap::new()).is_ok());
+        assert!(parse_config(path.to_str().unwrap(), &HashMap::new(), false).is_ok());
         std::fs::remove_file(path).ok();
     }
 
@@ -816,7 +817,7 @@ mod tests {
         let path = dir.join("rig_var_test.json");
         std::fs::write(&path, json).unwrap();
         let vars = HashMap::from([("project".into(), "my-app".into()), ("greeting".into(), "hello".into())]);
-        let cfg = parse_config(path.to_str().unwrap(), &vars).unwrap();
+        let cfg = parse_config(path.to_str().unwrap(), &vars, false).unwrap();
         assert_eq!(cfg.name, "my-app");
         match &cfg.steps[0].action {
             Action::Shell { commands, .. } => assert_eq!(commands[0], "echo hello"),
@@ -832,7 +833,7 @@ mod tests {
         let path = dir.join("rig_undef_test.json");
         std::fs::write(&path, json).unwrap();
         assert!(matches!(
-            parse_config(path.to_str().unwrap(), &HashMap::new()),
+            parse_config(path.to_str().unwrap(), &HashMap::new(), false),
             Err(ConfigError::UndefinedVar(v)) if v == "missing"
         ));
         std::fs::remove_file(path).ok();
@@ -898,7 +899,7 @@ mod tests {
         let dir = std::env::temp_dir();
         let path = dir.join("rig_ts_test.json");
         std::fs::write(&path, json).unwrap();
-        let cfg = parse_config(path.to_str().unwrap(), &HashMap::new()).unwrap();
+        let cfg = parse_config(path.to_str().unwrap(), &HashMap::new(), false).unwrap();
         assert!(!cfg.name.contains("{{timestamp}}"));
         assert!(cfg.name.starts_with("run-20"));
         std::fs::remove_file(path).ok();
@@ -910,7 +911,7 @@ mod tests {
         let dir = std::env::temp_dir();
         let path = dir.join("rig_tsfmt_test.json");
         std::fs::write(&path, json).unwrap();
-        let cfg = parse_config(path.to_str().unwrap(), &HashMap::new()).unwrap();
+        let cfg = parse_config(path.to_str().unwrap(), &HashMap::new(), false).unwrap();
         // Should be like "run-2026-05-04"
         assert!(cfg.name.starts_with("run-20"));
         assert!(cfg.name.contains('-'));
@@ -930,7 +931,7 @@ mod tests {
         let dir = std::env::temp_dir();
         let path = dir.join("rig_markup_ok_test.json");
         std::fs::write(&path, json).unwrap();
-        assert!(parse_config(path.to_str().unwrap(), &HashMap::new()).is_ok());
+        assert!(parse_config(path.to_str().unwrap(), &HashMap::new(), false).is_ok());
         std::fs::remove_file(path).ok();
     }
 
@@ -947,7 +948,7 @@ mod tests {
         let path = dir.join("rig_markup_bad_test.json");
         std::fs::write(&path, json).unwrap();
         assert!(matches!(
-            parse_config(path.to_str().unwrap(), &HashMap::new()),
+            parse_config(path.to_str().unwrap(), &HashMap::new(), false),
             Err(ConfigError::InvalidMarkup(..))
         ));
         std::fs::remove_file(path).ok();
