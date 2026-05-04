@@ -194,7 +194,7 @@ impl Runner {
             Action::Shell { commands, dir, env } => self.exec_shell(commands, dir.as_deref(), env.as_ref(), meta, indent, sudo),
             Action::Git { repo, dest, on_conflict } => { self.exec_git(repo, dest, on_conflict, meta, indent)?; Ok(0) }
             Action::Fs { op, if_exists, if_not_exists } => { self.exec_fs(op, if_exists.as_ref(), if_not_exists.as_ref(), indent)?; Ok(0) }
-            Action::Io { level, message, markup } => { self.exec_io(level, message, *markup, indent); Ok(0) }
+            Action::Io { op } => { self.exec_io(op, meta, indent)?; Ok(0) }
             Action::Var { name, source } => { self.exec_var(name, source, meta, indent)?; Ok(0) }
         }
     }
@@ -417,9 +417,30 @@ impl Runner {
 
     // -- IO --
 
-    fn exec_io(&self, level: &IoLevel, message: &str, markup: bool, indent: &str) {
-        let message = self.subst(message);
-        let text = if markup { style::render(&message) } else { message.clone() };
+    fn exec_io(&self, op: &IoOp, _meta: &StepMeta, indent: &str) -> Result<(), ExecError> {
+        match op {
+            IoOp::Write { level, message, markup } => {
+                self.io_write(level, message, *markup, indent);
+                Ok(())
+            }
+            IoOp::Read { read, prompt, default, secret } => {
+                self.io_read(read, prompt.as_deref(), default.as_deref(), *secret, indent)
+            }
+        }
+    }
+
+    fn io_write(&self, level: &IoLevel, message: &str, markup: bool, indent: &str) {
+        // Use the colorized substitution so unresolved @vars stand out in the terminal.
+        let message_display = self.scope.borrow().substitute_display(message);
+        // For log file and fallback text, use plain substitution.
+        let message_plain = self.subst(message);
+        let text = if markup {
+            style::render(&message_display)
+        } else {
+            // Non-markup io still benefits from highlighting unresolved vars, but we don't
+            // want to render markup tags inside arbitrary user text. Use plain here.
+            message_plain.clone()
+        };
         let line = match level {
             IoLevel::Log => format!("{indent}  {text}"),
             IoLevel::Info => format!("{indent}  {}", style::render(&format!("<fc>info:</f> {text}"))),
@@ -427,7 +448,6 @@ impl Runner {
             IoLevel::Error => format!("{indent}  {}", style::render(&format!("<fr>error:</f> {text}"))),
         };
         println!("{line}");
-        // Log plain text (strip markup for log file)
         let plain = if markup { message.to_string() } else { text.clone() };
         let prefix = match level {
             IoLevel::Log => "LOG",
@@ -436,6 +456,61 @@ impl Runner {
             IoLevel::Error => "ERROR",
         };
         self.write_log(&format!("[{prefix}] {plain}"));
+    }
+
+    fn io_read(&self, read: &str, prompt: Option<&str>, default: Option<&str>, secret: bool, indent: &str) -> Result<(), ExecError> {
+        let vr = crate::vars::VarRef::parse(read)
+            .ok_or_else(|| ExecError::Command(format!("invalid io read target: {read}")))?;
+        if !vr.is_runtime_writable() {
+            return Err(ExecError::Command(format!("io read target '{}' is not runtime-writable", vr.display())));
+        }
+        let key = vr.key();
+
+        if self.dry_run {
+            if let Some(d) = default {
+                self.scope.borrow_mut().set(&key, d.to_string());
+                println!("{indent}  [dry-run] read {key} = {d:?} (default)");
+            } else {
+                println!("{indent}  [dry-run] read {key} (no input in dry-run; unset)");
+            }
+            return Ok(());
+        }
+
+        // Render prompt.
+        let prompt_resolved = prompt.map(|p| self.subst(p));
+        let prompt_text = prompt_resolved.as_deref().unwrap_or("");
+
+        let line = if secret {
+            rpassword::prompt_password(prompt_text)
+                .map_err(|e| ExecError::Command(format!("stdin read failed: {e}")))?
+        } else {
+            use std::io::Write;
+            if !prompt_text.is_empty() {
+                print!("{prompt_text}");
+                std::io::stdout().flush().ok();
+            }
+            let mut buf = String::new();
+            std::io::stdin().read_line(&mut buf)
+                .map_err(|e| ExecError::Command(format!("stdin read failed: {e}")))?;
+            buf.trim_end_matches(['\n', '\r']).to_string()
+        };
+
+        let value = if line.is_empty() {
+            match default {
+                Some(d) => d.to_string(),
+                None => {
+                    println!("{indent}  {}", style::render(&format!("<fy>read {key} unset (no input, no default)</f>")));
+                    return Ok(());
+                }
+            }
+        } else {
+            line
+        };
+
+        let display = if secret { "****".to_string() } else { format!("{value:?}") };
+        self.scope.borrow_mut().set(&key, value);
+        println!("{indent}  {}", style::render(&format!("<fg>read</f> <mb>{key}</m> = {display}")));
+        Ok(())
     }
 
     // -- Git --
@@ -751,9 +826,21 @@ impl Runner {
                 if let Some(c) = if_exists { println!("{ai}{}", style::render(&format!("<md>if-exists:</m> {}", condition_label(c)))); }
                 if let Some(c) = if_not_exists { println!("{ai}{}", style::render(&format!("<md>if-not-exists:</m> {}", condition_label(c)))); }
             }
-            Action::Io { level, message, markup } => {
-                let ml = if *markup { " [markup]" } else { "" };
-                println!("{ai}{}", style::render(&format!("<md>{level:?}:</m> {message:?}{ml}")));
+            Action::Io { op } => match op {
+                IoOp::Write { level, message, markup } => {
+                    let ml = if *markup { " [markup]" } else { "" };
+                    println!("{ai}{}", style::render(&format!("<md>{level:?}:</m> {message:?}{ml}")));
+                }
+                IoOp::Read { read, prompt, default, secret } => {
+                    let extras = {
+                        let mut v = Vec::new();
+                        if let Some(p) = prompt { v.push(format!("prompt: {p:?}")); }
+                        if let Some(d) = default { v.push(format!("default: {d:?}")); }
+                        if *secret { v.push("secret".to_string()); }
+                        if v.is_empty() { String::new() } else { format!(" ({})", v.join(", ")) }
+                    };
+                    println!("{ai}{}", style::render(&format!("<md>read:</m> {read}{extras}")));
+                }
             }
             Action::Var { name, source } => {
                 match source {

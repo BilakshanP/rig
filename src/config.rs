@@ -123,10 +123,8 @@ pub enum Action {
         if_not_exists: Option<Condition>,
     },
     Io {
-        level: IoLevel,
-        message: String,
-        #[serde(default)]
-        markup: bool,
+        #[serde(flatten)]
+        op: IoOp,
     },
     Var {
         /// Variable name (must include @ prefix).
@@ -160,6 +158,28 @@ pub enum IoLevel {
     Info,
     Warn,
     Error,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum IoOp {
+    /// Print a message (optionally with aml markup).
+    Write {
+        level: IoLevel,
+        message: String,
+        #[serde(default)]
+        markup: bool,
+    },
+    /// Read a line from stdin into a variable (must be @-prefixed).
+    Read {
+        read: String,
+        #[serde(default)]
+        prompt: Option<String>,
+        #[serde(default)]
+        default: Option<String>,
+        #[serde(default)]
+        secret: bool,
+    },
 }
 
 // -- Git --
@@ -378,6 +398,18 @@ fn check_var_action_writes(step: &Step) -> Result<(), ConfigError> {
             None => return Err(ConfigError::UndefinedVar(format!("invalid var action target: {name}"))),
         }
     }
+    if let Action::Io { op: IoOp::Read { read, .. } } = &step.action {
+        match crate::vars::VarRef::parse(read) {
+            Some(vr) if vr.is_runtime_writable() => {}
+            Some(vr) => {
+                return Err(ConfigError::UndefinedVar(format!(
+                    "io read target '{}' is not runtime-writable (use @-prefix)",
+                    vr.display()
+                )));
+            }
+            None => return Err(ConfigError::UndefinedVar(format!("invalid io read target: {read}"))),
+        }
+    }
     for child in &step.then {
         if let StepRef::Inline(s) = child { check_var_action_writes(s)?; }
     }
@@ -429,7 +461,11 @@ fn collect_refs_in_action(action: &Action, refs: &mut Vec<crate::vars::VarRef>) 
                 refs.extend(crate::vars::scan_refs(to));
             }
         },
-        Action::Io { message, .. } => refs.extend(crate::vars::scan_refs(message)),
+        Action::Io { op } => match op {
+            IoOp::Write { message, .. } => refs.extend(crate::vars::scan_refs(message)),
+            IoOp::Read { prompt: Some(p), .. } => refs.extend(crate::vars::scan_refs(p)),
+            _ => {}
+        },
         Action::Var { source, .. } => match source {
             VarSource::Command { command } => refs.extend(crate::vars::scan_refs(command)),
             VarSource::File { file } => refs.extend(crate::vars::scan_refs(file)),
@@ -568,7 +604,7 @@ fn validate_markup(config: &Config) -> Result<(), ConfigError> {
 }
 
 fn check_markup(step: &Step) -> Result<(), ConfigError> {
-    if let Action::Io { markup: true, message, .. } = &step.action {
+    if let Action::Io { op: IoOp::Write { markup: true, message, .. } } = &step.action {
         use aml::prelude::Document;
         if Document::try_new(message).is_err() {
             return Err(ConfigError::InvalidMarkup(step.name.clone(), message.clone()));
@@ -821,7 +857,7 @@ mod tests {
             }]
         }"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
-        assert!(matches!(&cfg.steps[0].action, Action::Io { level: IoLevel::Info, .. }));
+        assert!(matches!(&cfg.steps[0].action, Action::Io { op: IoOp::Write { level: IoLevel::Info, .. } }));
     }
 
     #[test]
@@ -996,6 +1032,30 @@ mod tests {
             "steps": [{ "name": "ok", "action": { "kind": "var", "name": "@result", "command": "echo x" } }]
         }"#;
         let path = std::env::temp_dir().join("rig_atvar_write_test.json");
+        std::fs::write(&path, json).unwrap();
+        assert!(parse_config(path.to_str().unwrap(), &HashMap::new(), false).is_ok());
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn io_read_rejects_non_at_target() {
+        let json = r#"{
+            "name": "test", "version": "1.0.0",
+            "steps": [{ "name": "r", "action": { "kind": "io", "read": "plain" } }]
+        }"#;
+        let path = std::env::temp_dir().join("rig_ioread_reject_test.json");
+        std::fs::write(&path, json).unwrap();
+        assert!(parse_config(path.to_str().unwrap(), &HashMap::new(), false).is_err());
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn io_read_accepts_at_target() {
+        let json = r#"{
+            "name": "test", "version": "1.0.0",
+            "steps": [{ "name": "r", "action": { "kind": "io", "read": "@captured", "prompt": "go: ", "default": "yes" } }]
+        }"#;
+        let path = std::env::temp_dir().join("rig_ioread_ok_test.json");
         std::fs::write(&path, json).unwrap();
         assert!(parse_config(path.to_str().unwrap(), &HashMap::new(), false).is_ok());
         std::fs::remove_file(path).ok();

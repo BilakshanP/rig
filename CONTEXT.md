@@ -11,7 +11,7 @@ A Rust CLI tool called `rig` that reads a JSON/JSONC config and executes setup s
 | `shell` | Run commands via `sh -c` with optional dir/env   |
 | `git`   | Clone a repo; handle existing dest               |
 | `fs`    | File operations: create, symlink, copy, move, delete |
-| `io`    | Structured logging with levels and optional markup |
+| `io`    | Structured logging (write) or prompt-and-read from stdin into a `@var` |
 | `var`   | Set a runtime-mutable `@var` from a step's stdout or a shell command |
 
 ## Config Structure
@@ -69,7 +69,7 @@ Actions are nested objects with a `kind` discriminator. Steps can have an `id` f
 - **`meta.retries`** — auto-retry on failure N times. Overrides global `retries`.
 - **`meta.retry-delay`** — seconds to sleep before each retry.
 - **Top-level `meta`** — global defaults for `retries`, `retry-delay`, `silent`, `sudo`, and `log` (run transcript path).
-- **`io` action** — structured logging with levels (`log`, `info`, `warn`, `error`) and optional aml markup. Always succeeds.
+- **`io` action** — write: `level`/`message`/`markup`; read: `read`/`prompt?`/`default?`/`secret?` (stores line from stdin into an `@var`).
 - **`var` action** — set a mutable `@var` from `command` (shell output), `from` (step stdout), `to` (feed variable to step stdin), or `file` (read file contents).
 - **Variable system** — 5 categories by prefix/case:
   - `#NAME` (built-in: `#timestamp`, `#now`, `#pwd`)

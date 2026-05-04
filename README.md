@@ -122,7 +122,20 @@ Structured logging. Messages are plain text by default; set `markup: true` to pa
 { "kind": "io", "level": "info", "message": "<fg>Done!</f>", "markup": true }
 ```
 
-Levels: `log`, `info`, `warn`, `error`. IO actions always succeed and never affect step execution.
+Levels: `log`, `info`, `warn`, `error`. Write-mode io always succeeds and never affects step execution.
+
+Read-mode io prompts for input and stores it in a runtime-mutable `@var`:
+
+```jsonc
+{ "kind": "io", "read": "@env", "prompt": "Environment: ", "default": "dev" }
+{ "kind": "io", "read": "@password", "prompt": "Password: ", "secret": true }
+```
+
+- `read` must be an `@`-prefixed var (runtime-mutable)
+- `prompt` is optional
+- `default` is used if the user enters an empty line; without one, the var stays unset (later references render as `{{@env}}` in yellow)
+- `secret: true` hides the input and displays it as `****`
+- In `--dry-run` the `default` is used if set; otherwise the var is left unset
 
 ## Step Features
 

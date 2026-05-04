@@ -266,9 +266,17 @@
                 "kind": { "const": "io" },
                 "level": { "type": "string", "enum": ["log", "info", "warn", "error"], "description": "Message severity level" },
                 "message": { "type": "string", "description": "Message text" },
-                "markup": { "type": "boolean", "default": false, "description": "Parse message as aml markup" }
+                "markup": { "type": "boolean", "default": false, "description": "Parse message as aml markup" },
+                "read": { "type": "string", "description": "Target @var to store the line read from stdin" },
+                "prompt": { "type": "string", "description": "Prompt text shown before reading" },
+                "default": { "type": "string", "description": "Value used when the user enters an empty line" },
+                "secret": { "type": "boolean", "default": false, "description": "Hide input (no echo) and display as ****" }
             },
-            "required": ["kind", "level", "message"]
+            "required": ["kind"],
+            "oneOf": [
+                { "required": ["level", "message"] },
+                { "required": ["read"] }
+            ]
         },
         "action_var": {
             "properties": {

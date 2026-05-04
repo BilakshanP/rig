@@ -181,6 +181,17 @@ impl Scope {
     /// Substitute all `{{...}}` references in a string using this scope.
     /// Unresolved references are left as-is (caller may treat as error).
     pub fn substitute(&self, s: &str) -> String {
+        self.substitute_impl(s, false)
+    }
+
+    /// Substitute like `substitute`, but wrap any unresolved `{{...}}` in yellow
+    /// aml markup for terminal display. Use this only for strings that will be
+    /// passed to `style::render` (e.g., io messages).
+    pub fn substitute_display(&self, s: &str) -> String {
+        self.substitute_impl(s, true)
+    }
+
+    fn substitute_impl(&self, s: &str, highlight_unresolved: bool) -> String {
         let mut out = String::with_capacity(s.len());
         let mut rest = s;
         while let Some(start) = rest.find("{{") {
@@ -192,8 +203,11 @@ impl Scope {
                     && let Some(val) = self.resolve(&vr)
                 {
                     out.push_str(&val);
+                } else if highlight_unresolved {
+                    out.push_str("<fy>{{");
+                    out.push_str(expr);
+                    out.push_str("}}</f>");
                 } else {
-                    // Leave unresolved as-is.
                     out.push_str("{{");
                     out.push_str(expr);
                     out.push_str("}}");

@@ -111,9 +111,19 @@ fn describe_inner(
             if let Some(c) = if_exists { println!("{ai}{}", style::render(&format!("<md>if-exists:</m> {}", condition_label(c)))); }
             if let Some(c) = if_not_exists { println!("{ai}{}", style::render(&format!("<md>if-not-exists:</m> {}", condition_label(c)))); }
         }
-        Action::Io { level, message, markup } => {
-            let ml = if *markup { " [markup]" } else { "" };
-            println!("{ai}{}", style::render(&format!("<md>{level:?}:</m> {message:?}{ml}")));
+        Action::Io { op } => match op {
+            IoOp::Write { level, message, markup } => {
+                let ml = if *markup { " [markup]" } else { "" };
+                println!("{ai}{}", style::render(&format!("<md>{level:?}:</m> {message:?}{ml}")));
+            }
+            IoOp::Read { read, prompt, default, secret } => {
+                let mut extras = Vec::new();
+                if let Some(p) = prompt { extras.push(format!("prompt: {p:?}")); }
+                if let Some(d) = default { extras.push(format!("default: {d:?}")); }
+                if *secret { extras.push("secret".to_string()); }
+                let extras = if extras.is_empty() { String::new() } else { format!(" ({})", extras.join(", ")) };
+                println!("{ai}{}", style::render(&format!("<md>read:</m> {read}{extras}")));
+            }
         }
         Action::Var { name, source } => {
             match source {

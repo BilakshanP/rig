@@ -36,7 +36,7 @@ src/
   - `Shell { commands: Vec<String>, dir?, env? }` (commands accepts single string or array)
   - `Git { repo, dest, on_conflict }`
   - `Fs { op: FsOp, if_exists?, if_not_exists? }`
-  - `Io { level: IoLevel, message, markup }`
+  - `Io { op: IoOp }` (`IoOp::Write { level, message, markup }` or `IoOp::Read { read, prompt?, default?, secret }`)
   - `Var { name, source: VarSource }`
 - `VarSource` — `Command { command }`, `From { from: StepRef }`, `To { to: StepRef }`, `File { file: String }`
 - `FsOp` — enum:
