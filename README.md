@@ -134,7 +134,7 @@ Read-mode io prompts for input and stores it in a runtime-mutable `@var`:
 - `read` must be an `@`-prefixed var (runtime-mutable)
 - `prompt` is optional
 - `default` is used if the user enters an empty line; without one, the var stays unset (later references render as `{{@env}}` in yellow)
-- `secret: true` hides the input and displays it as `****`
+- `secret: true` masks each keystroke with `*` as you type, and shows the captured value as `****` afterward
 - In `--dry-run` the `default` is used if set; otherwise the var is left unset
 
 ## Step Features

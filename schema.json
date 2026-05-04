@@ -270,7 +270,7 @@
                 "read": { "type": "string", "description": "Target @var to store the line read from stdin" },
                 "prompt": { "type": "string", "description": "Prompt text shown before reading" },
                 "default": { "type": "string", "description": "Value used when the user enters an empty line" },
-                "secret": { "type": "boolean", "default": false, "description": "Hide input (no echo) and display as ****" }
+                "secret": { "type": "boolean", "default": false, "description": "Mask input with * per keystroke; display captured value as ****" }
             },
             "required": ["kind"],
             "oneOf": [
