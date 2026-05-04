@@ -36,17 +36,27 @@ pub struct Runner {
     pub index: HashMap<String, Step>,
     pub dry_run: bool,
     pub verbose: bool,
-    pub global_retries: Option<u32>,
+    pub config_meta: ConfigMeta,
+    log_file: RefCell<Option<std::fs::File>>,
     entry_counts: RefCell<HashMap<String, u32>>,
 }
 
 impl Runner {
-    pub fn new(index: HashMap<String, Step>, dry_run: bool, verbose: bool, global_retries: Option<u32>) -> Self {
-        Self { index, dry_run, verbose, global_retries, entry_counts: RefCell::new(HashMap::new()) }
+    pub fn new(index: HashMap<String, Step>, dry_run: bool, verbose: bool, config_meta: ConfigMeta) -> Self {
+        let log_file = if !dry_run {
+            config_meta.log.as_ref().and_then(|p| {
+                let path = crate::path::expand_tilde(p);
+                if let Some(parent) = path.parent() { std::fs::create_dir_all(parent).ok(); }
+                std::fs::File::create(&path).ok()
+            })
+        } else {
+            None
+        };
+        Self { index, dry_run, verbose, config_meta, log_file: RefCell::new(log_file), entry_counts: RefCell::new(HashMap::new()) }
     }
 
     pub fn run_steps(&self, steps: &[Step]) -> Result<(), ExecError> {
-        if !self.dry_run && Self::needs_sudo(steps) {
+        if !self.dry_run && (self.config_meta.sudo || steps.iter().any(|s| s.meta.sudo)) {
             self.preflight_sudo()?;
         }
         for step in steps {
@@ -54,10 +64,6 @@ impl Runner {
             self.run_step(step, 0)?;
         }
         Ok(())
-    }
-
-    fn needs_sudo(steps: &[Step]) -> bool {
-        steps.iter().any(|s| s.meta.sudo)
     }
 
     fn preflight_sudo(&self) -> Result<(), ExecError> {
@@ -82,7 +88,7 @@ impl Runner {
 
         println!("{indent}{}", style::render(&format!("<fg>→</f> <mb>{}</m>", step.name)));
 
-        let max_retries = step.meta.retries.or(self.global_retries).unwrap_or(0);
+        let max_retries = step.meta.retries.or(self.config_meta.retries).unwrap_or(0);
         let mut last_err = None;
 
         for attempt in 0..=max_retries {
@@ -169,18 +175,40 @@ impl Runner {
 
     /// Execute an action, returning the exit code (0 for non-shell actions on success).
     fn exec_action(&self, action: &Action, meta: &Meta, indent: &str, _depth: usize) -> Result<i32, ExecError> {
+        let sudo = meta.sudo || self.config_meta.sudo;
         match action {
-            Action::Shell { commands, dir, env } => self.exec_shell(commands, dir.as_deref(), env.as_ref(), meta, indent, meta.sudo),
+            Action::Shell { commands, dir, env } => self.exec_shell(commands, dir.as_deref(), env.as_ref(), meta, indent, sudo),
             Action::Git { repo, dest, on_conflict } => { self.exec_git(repo, dest, on_conflict, meta, indent)?; Ok(0) }
             Action::Fs { op, if_exists, if_not_exists } => { self.exec_fs(op, if_exists.as_ref(), if_not_exists.as_ref(), indent)?; Ok(0) }
+            Action::Io { level, message, markup } => { self.exec_io(level, message, *markup, indent); Ok(0) }
         }
     }
 
     fn maybe_print(&self, stdout: &[u8], stderr: &[u8], meta: &Meta) {
-        let show_out = !meta.silent.contains(&Silent::Stdout) || self.verbose;
-        let show_err = !meta.silent.contains(&Silent::Stderr) || self.verbose;
+        let silent = if meta.silent.is_empty() { &self.config_meta.silent } else { &meta.silent };
+        let show_out = !silent.contains(&Silent::Stdout) || self.verbose;
+        let show_err = !silent.contains(&Silent::Stderr) || self.verbose;
         if show_out && !stdout.is_empty() { print!("{}", String::from_utf8_lossy(stdout)); }
         if show_err && !stderr.is_empty() { eprint!("{}", String::from_utf8_lossy(stderr)); }
+        // Always write to log file
+        self.write_log_bytes(stdout);
+        self.write_log_bytes(stderr);
+    }
+
+    fn write_log(&self, msg: &str) {
+        use std::io::Write;
+        if let Some(f) = self.log_file.borrow_mut().as_mut() {
+            let _ = writeln!(f, "{msg}");
+        }
+    }
+
+    fn write_log_bytes(&self, data: &[u8]) {
+        use std::io::Write;
+        if !data.is_empty()
+            && let Some(f) = self.log_file.borrow_mut().as_mut()
+        {
+            let _ = f.write_all(data);
+        }
     }
 
     // ── Shell ──
@@ -222,6 +250,28 @@ impl Runner {
             }
         }
         Ok(last_code)
+    }
+
+    // ── IO ──
+
+    fn exec_io(&self, level: &IoLevel, message: &str, markup: bool, indent: &str) {
+        let text = if markup { style::render(message) } else { message.to_string() };
+        let line = match level {
+            IoLevel::Log => format!("{indent}  {text}"),
+            IoLevel::Info => format!("{indent}  {}", style::render(&format!("<fc>ℹ</f> {text}"))),
+            IoLevel::Warn => format!("{indent}  {}", style::render(&format!("<fy>⚠</f> {text}"))),
+            IoLevel::Error => format!("{indent}  {}", style::render(&format!("<fr>✗</f> {text}"))),
+        };
+        println!("{line}");
+        // Log plain text (strip markup for log file)
+        let plain = if markup { message.to_string() } else { text.clone() };
+        let prefix = match level {
+            IoLevel::Log => "LOG",
+            IoLevel::Info => "INFO",
+            IoLevel::Warn => "WARN",
+            IoLevel::Error => "ERROR",
+        };
+        self.write_log(&format!("[{prefix}] {plain}"));
     }
 
     // ── Git ──
@@ -422,7 +472,14 @@ impl Runner {
         {
             println!("{}", style::render(&format!("<md>{desc}</m>")));
         }
-        if let Some(r) = config.retries { println!("{}", style::render(&format!("<mb>retries:</m> {r}"))); }
+        if let Some(r) = config.meta.retries { println!("{}", style::render(&format!("<mb>retries:</m> {r}"))); }
+        if let Some(d) = config.meta.retry_delay { println!("{}", style::render(&format!("<mb>retry-delay:</m> {d}s"))); }
+        if config.meta.sudo { println!("{}", style::render("<mb>sudo:</m> true")); }
+        if !config.meta.silent.is_empty() {
+            let s: Vec<_> = config.meta.silent.iter().map(|s| format!("{s:?}").to_lowercase()).collect();
+            println!("{}", style::render(&format!("<mb>silent:</m> {}", s.join(", "))));
+        }
+        if let Some(log) = &config.meta.log { println!("{}", style::render(&format!("<mb>log:</m> {log}"))); }
 
         let optional_count = steps.iter().filter(|s| s.meta.optional).count();
         let fallible_count = steps.iter().filter(|s| s.meta.fallible).count();
@@ -492,6 +549,10 @@ impl Runner {
                 if let Some(c) = if_exists { println!("{ai}{}", style::render(&format!("<md>if-exists:</m> {}", condition_label(c)))); }
                 if let Some(c) = if_not_exists { println!("{ai}{}", style::render(&format!("<md>if-not-exists:</m> {}", condition_label(c)))); }
             }
+            Action::Io { level, message, markup } => {
+                let ml = if *markup { " [markup]" } else { "" };
+                println!("{ai}{}", style::render(&format!("<md>{level:?}:</m> {message:?}{ml}")));
+            }
         }
 
         // on-success / on-failure / on-return
@@ -554,11 +615,11 @@ mod tests {
     use std::fs;
 
     fn runner(index: HashMap<String, Step>) -> Runner {
-        Runner::new(index, false, false, None)
+        Runner::new(index, false, false, ConfigMeta::default())
     }
 
     fn dry_runner() -> Runner {
-        Runner::new(HashMap::new(), true, false, None)
+        Runner::new(HashMap::new(), true, false, ConfigMeta::default())
     }
 
     fn shell_step(commands: Vec<&str>, dir: Option<&str>) -> Step {
@@ -966,7 +1027,7 @@ mod tests {
         };
         let mut index = HashMap::new();
         index.insert("a".into(), step.clone());
-        let r = Runner::new(index, false, false, None);
+        let r = Runner::new(index, false, false, ConfigMeta::default());
         let result = r.run_step(&step, 0);
         assert!(result.is_err());
     }

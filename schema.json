@@ -9,14 +9,25 @@
         "name": { "type": "string" },
         "version": { "type": "string" },
         "description": { "type": "string" },
-        "retries": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Global default auto-retry count on failure"
-        },
+        "meta": { "$ref": "#/definitions/config_meta" },
         "steps": { "type": "array", "items": { "$ref": "#/definitions/step" } }
     },
     "definitions": {
+        "config_meta": {
+            "type": "object",
+            "description": "Top-level execution defaults",
+            "properties": {
+                "log": { "type": "string", "description": "Path to log file (supports {{variables}})" },
+                "silent": {
+                    "type": "array",
+                    "items": { "type": "string", "enum": ["stdout", "stderr"] },
+                    "description": "Global default: suppress output"
+                },
+                "sudo": { "type": "boolean", "default": false, "description": "Global default: run shell commands with sudo" },
+                "retries": { "type": "integer", "minimum": 0, "description": "Global default: auto-retry count on failure" },
+                "retry-delay": { "type": "number", "minimum": 0, "description": "Global default: seconds before each retry" }
+            }
+        },
         "step": {
             "type": "object",
             "required": ["name", "action"],
@@ -119,7 +130,8 @@
                 { "$ref": "#/definitions/action_fs_symlink" },
                 { "$ref": "#/definitions/action_fs_copy" },
                 { "$ref": "#/definitions/action_fs_move" },
-                { "$ref": "#/definitions/action_fs_delete" }
+                { "$ref": "#/definitions/action_fs_delete" },
+                { "$ref": "#/definitions/action_io" }
             ]
         },
         "action_shell": {
@@ -243,6 +255,15 @@
                 "if-not-exists": { "$ref": "#/definitions/condition" }
             },
             "required": ["kind", "delete"]
+        },
+        "action_io": {
+            "properties": {
+                "kind": { "const": "io" },
+                "level": { "type": "string", "enum": ["log", "info", "warn", "error"], "description": "Message severity level" },
+                "message": { "type": "string", "description": "Message text" },
+                "markup": { "type": "boolean", "default": false, "description": "Parse message as aml markup" }
+            },
+            "required": ["kind", "level", "message"]
         },
         "path_spec": {
             "oneOf": [

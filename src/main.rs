@@ -55,7 +55,7 @@ fn main() -> ExitCode {
         config::build_step_index(&cfg),
         cli.dry_run,
         cli.verbose,
-        cfg.retries,
+        cfg.meta.clone(),
     );
 
     let cwd = std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default();

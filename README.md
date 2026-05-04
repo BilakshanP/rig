@@ -20,13 +20,17 @@ rig setup.json --verbose    # Show suppressed output
 
 ## Config Format
 
-Configs are JSON or JSONC (comments supported). A config has a name, version, and a list of steps:
+Configs are JSON or JSONC (comments supported). A config has a name, version, optional top-level meta, and a list of steps:
 
 ```jsonc
 {
   "$schema": "./schema.json",
   "name": "my-env",
   "version": "1.0.0",
+  "meta": {
+    "retries": 2,                    // global default: retry failed steps twice
+    "log": "~/logs/{{name}}-{{timestamp}}.log"  // save run transcript
+  },
   "steps": [
     {
       "id": "install-tools",
@@ -90,6 +94,19 @@ File system operations use nested sub-action objects:
 // Delete
 { "kind": "fs", "delete": { "path": "~/.cache/old", "recurse": true }, "if-not-exists": "skip" }
 ```
+
+### io
+
+Structured logging. Messages are plain text by default; set `markup: true` to parse as aml.
+
+```jsonc
+{ "kind": "io", "level": "info", "message": "Starting setup..." }
+{ "kind": "io", "level": "warn", "message": "Config already exists" }
+{ "kind": "io", "level": "error", "message": "Missing dependency" }
+{ "kind": "io", "level": "info", "message": "<fg>✓ Done!</f>", "markup": true }
+```
+
+Levels: `log`, `info`, `warn`, `error`. IO actions always succeed and never affect step execution.
 
 ## Step Features
 

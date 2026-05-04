@@ -11,6 +11,7 @@ A Rust CLI tool called `rig` that reads a JSON/JSONC config and executes setup s
 | `shell` | Run commands via `sh -c` with optional dir/env   |
 | `git`   | Clone a repo; handle existing dest               |
 | `fs`    | File operations: create, symlink, copy, move, delete |
+| `io`    | Structured logging with levels and optional markup |
 
 ## Config Structure
 
@@ -20,7 +21,12 @@ Actions are nested objects with a `kind` discriminator. Steps can have an `id` f
 {
   "name": "my-env",
   "version": "1.0.0",
-  "retries": 2,
+  "meta": {
+    "retries": 2,
+    "log": "~/logs/{{name}}-{{timestamp}}.log",
+    "silent": ["stdout"],
+    "sudo": false
+  },
   "steps": [
     {
       "id": "install",
@@ -60,7 +66,9 @@ Actions are nested objects with a `kind` discriminator. Steps can have an `id` f
 - **`meta.silent`** — suppress `stdout`/`stderr`; shown with `--verbose`.
 - **`meta.retries`** — auto-retry on failure N times. Overrides global `retries`.
 - **`meta.retry-delay`** — seconds to sleep before each retry.
-- **`retries` (top-level)** — global default retry count for all steps.
+- **Top-level `meta`** — global defaults for `retries`, `retry-delay`, `silent`, `sudo`, and `log` (run transcript path).
+- **`io` action** — structured logging with levels (`log`, `info`, `warn`, `error`) and optional aml markup. Always succeeds.
+- **`{{timestamp}}`** — built-in variable substituted at startup (format: `YYYYMMDDTHHMMSS`).
 - **Cycle protection** — hard limit of 64 entries per step (not user-configurable).
 - **Tilde expansion** — `~` expands to `$HOME` in all path fields.
 - **JSONC support** — `//` and `/* */` comments via `json_comments` crate.

@@ -5,9 +5,18 @@
     "name": "kitchen-sink",
     "version": "1.0.0",
     "description": "Demonstrates every rig feature",
-    "retries": 1,                                       // global: retry failed steps once
+    "meta": {
+        "retries": 1,                                   // global: retry failed steps once
+        "log": "/tmp/rig-kitchen-sink-{{timestamp}}.log" // save run transcript
+    },
 
     "steps": [
+
+        // ── io: structured logging ──
+        {
+            "name": "Start",
+            "action": { "kind": "io", "level": "info", "message": "Beginning kitchen-sink demo..." }
+        },
 
         // ── shell: basic command ──
         {
@@ -218,6 +227,20 @@
                 "commands": ["echo 'Would install Node.js here'"]
             },
             "meta": { "optional": true }
+        },
+
+        // ── io: all levels ──
+        {
+            "name": "Log debug",
+            "action": { "kind": "io", "level": "log", "message": "Debug: checking system state" }
+        },
+        {
+            "name": "Warn user",
+            "action": { "kind": "io", "level": "warn", "message": "Cache directory was missing" }
+        },
+        {
+            "name": "Done",
+            "action": { "kind": "io", "level": "info", "message": "<fg>✓ All done!</f>", "markup": true }
         }
     ]
 }

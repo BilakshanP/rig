@@ -26,7 +26,8 @@ src/
 
 ## Data Model
 
-- `Config` — `name`, `version`, optional `description`, optional `retries`, `steps: Vec<Step>`
+- `Config` — `name`, `version`, optional `description`, `meta: ConfigMeta`, `steps: Vec<Step>`
+- `ConfigMeta` — `log?`, `silent: Vec<Silent>`, `sudo`, `retries?`, `retry_delay?`
 - `Step` — `id?`, `name`, `description?`, `action: Action`, `on_success?`, `on_failure?`, `on_return?`, `then: Vec<ChildRef>`, `meta: Meta`
 - `ChildRef` — `Id(String)` or `Inline(Box<Step>)`
 - `StepRefs` — `Single(StepRef)` or `Multiple(Vec<StepRef>)` (used for on-success/on-failure/on-return values)
@@ -35,6 +36,7 @@ src/
   - `Shell { commands, dir?, env? }`
   - `Git { repo, dest, on_conflict }`
   - `Fs { op: FsOp, if_exists?, if_not_exists? }`
+  - `Io { level: IoLevel, message, markup }`
 - `FsOp` — enum:
   - `Create { path: PathSpec, recurse, content? }`
   - `Symlink { from, to }`

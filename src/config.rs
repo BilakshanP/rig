@@ -13,8 +13,25 @@ pub struct Config {
     #[serde(default)]
     pub description: Option<String>,
     #[serde(default)]
-    pub retries: Option<u32>,
+    pub meta: ConfigMeta,
     pub steps: Vec<Step>,
+}
+
+// ── Top-level meta ──
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[allow(dead_code)]
+pub struct ConfigMeta {
+    #[serde(default)]
+    pub log: Option<String>,
+    #[serde(default)]
+    pub silent: Vec<Silent>,
+    #[serde(default)]
+    pub sudo: bool,
+    #[serde(default)]
+    pub retries: Option<u32>,
+    #[serde(default, rename = "retry-delay")]
+    pub retry_delay: Option<f64>,
 }
 
 // ── Step ──
@@ -115,6 +132,23 @@ pub enum Action {
         #[serde(default, rename = "if-not-exists")]
         if_not_exists: Option<Condition>,
     },
+    Io {
+        level: IoLevel,
+        message: String,
+        #[serde(default)]
+        markup: bool,
+    },
+}
+
+// ── IO ──
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum IoLevel {
+    Log,
+    Info,
+    Warn,
+    Error,
 }
 
 // ── Git ──
@@ -224,6 +258,15 @@ pub fn parse_config(path: &str, vars: &HashMap<String, String>) -> Result<Config
     let mut json = String::from_utf8_lossy(&buf).into_owned();
 
     json = json.replace("\\{\\{", "\x00LBRACE\x00");
+
+    // Built-in variables
+    let now = {
+        let d = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+        let secs = d.as_secs();
+        let (y, m, day, h, min, s) = epoch_to_ymdhms(secs);
+        format!("{y:04}{m:02}{day:02}T{h:02}{min:02}{s:02}")
+    };
+    json = json.replace("{{timestamp}}", &now);
 
     for (key, val) in vars {
         json = json.replace(&format!("{{{{{key}}}}}"), val);
@@ -335,6 +378,30 @@ fn visit_steprefs(refs: &StepRefs, f: &mut impl FnMut(&StepRef) -> Result<(), Co
         StepRefs::Single(sr) => f(sr),
         StepRefs::Multiple(v) => { for sr in v { f(sr)?; } Ok(()) }
     }
+}
+
+fn epoch_to_ymdhms(secs: u64) -> (u64, u64, u64, u64, u64, u64) {
+    let s = secs % 60;
+    let min = (secs / 60) % 60;
+    let h = (secs / 3600) % 24;
+    let mut days = secs / 86400;
+    let mut y: u64 = 1970;
+    loop {
+        let leap = y.is_multiple_of(4) && (!y.is_multiple_of(100) || y.is_multiple_of(400));
+        let dy = if leap { 366 } else { 365 };
+        if days < dy { break; }
+        days -= dy;
+        y += 1;
+    }
+    let leap = y.is_multiple_of(4) && (!y.is_multiple_of(100) || y.is_multiple_of(400));
+    let mdays = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mut m: u64 = 0;
+    for md in mdays {
+        if days < md { break; }
+        days -= md;
+        m += 1;
+    }
+    (y, m + 1, days + 1, h, min, s)
 }
 
 #[cfg(test)]
@@ -629,9 +696,9 @@ mod tests {
 
     #[test]
     fn parse_global_retries() {
-        let json = r#"{ "name": "test", "version": "1.0.0", "retries": 5, "steps": [] }"#;
+        let json = r#"{ "name": "test", "version": "1.0.0", "meta": { "retries": 5 }, "steps": [] }"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
-        assert_eq!(cfg.retries, Some(5));
+        assert_eq!(cfg.meta.retries, Some(5));
     }
 
     #[test]
@@ -763,6 +830,72 @@ mod tests {
             parse_config(path.to_str().unwrap(), &HashMap::new()),
             Err(ConfigError::UndefinedVar(v)) if v == "missing"
         ));
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn parse_io_action() {
+        let json = r#"{
+            "name": "test", "version": "1.0.0",
+            "steps": [{
+                "name": "log",
+                "action": { "kind": "io", "level": "info", "message": "hello" }
+            }]
+        }"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        match &cfg.steps[0].action {
+            Action::Io { level, message, markup } => {
+                assert_eq!(*level, IoLevel::Info);
+                assert_eq!(message, "hello");
+                assert!(!markup);
+            }
+            _ => panic!("expected Io"),
+        }
+    }
+
+    #[test]
+    fn parse_io_with_markup() {
+        let json = r#"{
+            "name": "test", "version": "1.0.0",
+            "steps": [{
+                "name": "log",
+                "action": { "kind": "io", "level": "warn", "message": "<fy>warning!</f>", "markup": true }
+            }]
+        }"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        match &cfg.steps[0].action {
+            Action::Io { level, markup, .. } => {
+                assert_eq!(*level, IoLevel::Warn);
+                assert!(markup);
+            }
+            _ => panic!("expected Io"),
+        }
+    }
+
+    #[test]
+    fn parse_top_level_meta() {
+        let json = r#"{
+            "name": "test", "version": "1.0.0",
+            "meta": { "log": "/tmp/test.log", "silent": ["stdout"], "sudo": true, "retries": 2, "retry-delay": 1.5 },
+            "steps": []
+        }"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.meta.log.as_deref(), Some("/tmp/test.log"));
+        assert_eq!(cfg.meta.silent, vec![Silent::Stdout]);
+        assert!(cfg.meta.sudo);
+        assert_eq!(cfg.meta.retries, Some(2));
+        assert_eq!(cfg.meta.retry_delay, Some(1.5));
+    }
+
+    #[test]
+    fn timestamp_substituted() {
+        let json = r#"{ "name": "run-{{timestamp}}", "version": "1.0.0", "steps": [] }"#;
+        let dir = std::env::temp_dir();
+        let path = dir.join("rig_ts_test.json");
+        std::fs::write(&path, json).unwrap();
+        let cfg = parse_config(path.to_str().unwrap(), &HashMap::new()).unwrap();
+        assert!(!cfg.name.contains("{{timestamp}}"));
+        assert!(cfg.name.starts_with("run-20"));
         std::fs::remove_file(path).ok();
     }
 }
