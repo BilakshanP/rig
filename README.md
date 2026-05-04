@@ -187,6 +187,12 @@ Control execution behavior per step:
 "if-exists": { "execute": "backup-handler" }
 ```
 
+`"append"` is supported for:
+- `fs create` with `content` — appends content to the existing file
+- `fs copy` — appends source file content to the existing destination
+
+For `symlink`/`move`, `append` is not meaningful and will error.
+
 ## Dry Run
 
 `--dry-run` shows a complete audit of the config — all steps including optional ones, IDs, meta flags, conditions, handlers, and sub-steps:
