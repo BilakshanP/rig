@@ -12,8 +12,8 @@ pub struct Config {
     pub version: String,
     #[serde(default)]
     pub description: Option<String>,
-    #[serde(default, rename = "max-retries")]
-    pub max_retries: Option<u32>,
+    #[serde(default)]
+    pub retries: Option<u32>,
     pub steps: Vec<Step>,
 }
 
@@ -28,10 +28,32 @@ pub struct Step {
     #[serde(default)]
     pub description: Option<String>,
     pub action: Action,
+    #[serde(default, rename = "on-success")]
+    pub on_success: Option<StepRefs>,
+    #[serde(default, rename = "on-failure")]
+    pub on_failure: Option<StepRefs>,
+    #[serde(default, rename = "on-return")]
+    pub on_return: Option<HashMap<String, StepRefs>>,
     #[serde(default)]
-    pub children: Vec<ChildRef>,
+    pub then: Vec<ChildRef>,
     #[serde(default)]
     pub meta: Meta,
+}
+
+// ── Step references ──
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum StepRefs {
+    Single(StepRef),
+    Multiple(Vec<StepRef>),
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum StepRef {
+    Id(String),
+    Inline(Box<Step>),
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -52,8 +74,8 @@ pub struct Meta {
     pub fallible: bool,
     #[serde(default)]
     pub silent: Vec<Silent>,
-    #[serde(default, rename = "max-retries")]
-    pub max_retries: Option<u32>,
+    #[serde(default)]
+    pub retries: Option<u32>,
     #[serde(default, rename = "retry-delay")]
     pub retry_delay: Option<f64>,
 }
@@ -76,21 +98,16 @@ pub enum Action {
         dir: Option<String>,
         #[serde(default)]
         env: Option<HashMap<String, String>>,
-        #[serde(default, rename = "on-return")]
-        on_return: Option<HashMap<String, StepRef>>,
     },
     Git {
         repo: String,
         dest: String,
-        #[serde(default, rename = "if-exists")]
-        if_exists: GitIfExists,
+        #[serde(default, rename = "on-conflict")]
+        on_conflict: GitOnConflict,
     },
     Fs {
-        action: FsAction,
-        #[serde(default)]
-        recurse: bool,
         #[serde(flatten)]
-        target: FsTarget,
+        op: FsOp,
         #[serde(default, rename = "if-exists")]
         if_exists: Option<Condition>,
         #[serde(default, rename = "if-not-exists")]
@@ -98,20 +115,11 @@ pub enum Action {
     },
 }
 
-// ── Step references (id string or inline step) ──
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(untagged)]
-pub enum StepRef {
-    Id(String),
-    Inline(Box<Step>),
-}
-
 // ── Git ──
 
 #[derive(Debug, Clone, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
-pub enum GitIfExists {
+pub enum GitOnConflict {
     #[default]
     Skip,
     Pull,
@@ -120,25 +128,32 @@ pub enum GitIfExists {
 
 // ── FS ──
 
-#[derive(Debug, Clone, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum FsAction {
-    Create,
-    Symlink,
-    Copy,
-    Move,
-    Delete,
-}
-
 #[derive(Debug, Clone, Deserialize)]
-#[serde(untagged)]
-pub enum FsTarget {
-    FromTo {
+#[serde(rename_all = "lowercase")]
+pub enum FsOp {
+    Create {
+        path: PathSpec,
+        #[serde(default)]
+        recurse: bool,
+        #[serde(default)]
+        content: Option<String>,
+    },
+    Symlink {
         from: String,
         to: String,
     },
-    Path {
+    Copy {
+        from: String,
+        to: String,
+    },
+    Move {
+        from: String,
+        to: String,
+    },
+    Delete {
         path: PathSpec,
+        #[serde(default)]
+        recurse: bool,
     },
 }
 
@@ -206,7 +221,6 @@ pub fn parse_config(path: &str, vars: &HashMap<String, String>) -> Result<Config
     io::Read::read_to_end(&mut json_comments::StripComments::new(content.as_bytes()), &mut buf)?;
     let mut json = String::from_utf8_lossy(&buf).into_owned();
 
-    // Escape \{\{ before substitution
     json = json.replace("\\{\\{", "\x00LBRACE\x00");
 
     for (key, val) in vars {
@@ -220,7 +234,6 @@ pub fn parse_config(path: &str, vars: &HashMap<String, String>) -> Result<Config
         return Err(ConfigError::UndefinedVar(var_name.to_string()));
     }
 
-    // Restore escaped braces
     json = json.replace("\x00LBRACE\x00", "{{");
 
     let config: Config = serde_json::from_str(&json)?;
@@ -228,6 +241,8 @@ pub fn parse_config(path: &str, vars: &HashMap<String, String>) -> Result<Config
     validate_refs(&config)?;
     Ok(config)
 }
+
+// ── Validation ──
 
 fn validate_unique_ids(config: &Config) -> Result<(), ConfigError> {
     let mut seen = std::collections::HashSet::new();
@@ -243,109 +258,80 @@ fn collect_ids(step: &Step, seen: &mut std::collections::HashSet<String>) -> Res
     {
         return Err(ConfigError::DuplicateId(id.clone()));
     }
-    for child in &step.children {
-        if let ChildRef::Inline(s) = child {
-            collect_ids(s, seen)?;
-        }
+    for child in &step.then {
+        if let ChildRef::Inline(s) = child { collect_ids(s, seen)?; }
     }
-    Ok(())
+    visit_step_refs(step, &mut |sr| {
+        if let StepRef::Inline(s) = sr { collect_ids(s, seen)?; }
+        Ok(())
+    })
 }
 
 /// Build a map of id → Step for reference resolution.
 pub fn build_step_index(config: &Config) -> HashMap<String, Step> {
     let mut map = HashMap::new();
-    for step in &config.steps {
-        index_step(step, &mut map);
-    }
+    for step in &config.steps { index_step(step, &mut map); }
     map
 }
 
 fn index_step(step: &Step, map: &mut HashMap<String, Step>) {
-    if let Some(id) = &step.id {
-        map.insert(id.clone(), step.clone());
-    }
-    for child in &step.children {
-        if let ChildRef::Inline(s) = child {
-            index_step(s, map);
-        }
+    if let Some(id) = &step.id { map.insert(id.clone(), step.clone()); }
+    for child in &step.then {
+        if let ChildRef::Inline(s) = child { index_step(s, map); }
     }
 }
 
 fn validate_refs(config: &Config) -> Result<(), ConfigError> {
     let mut ids = std::collections::HashSet::new();
-    for step in &config.steps {
-        collect_all_ids(step, &mut ids);
-    }
-    for step in &config.steps {
-        check_refs(step, &ids)?;
-    }
+    for step in &config.steps { collect_all_ids(step, &mut ids); }
+    for step in &config.steps { check_refs(step, &ids)?; }
     Ok(())
 }
 
 fn collect_all_ids(step: &Step, ids: &mut std::collections::HashSet<String>) {
-    if let Some(id) = &step.id {
-        ids.insert(id.clone());
+    if let Some(id) = &step.id { ids.insert(id.clone()); }
+    for child in &step.then {
+        if let ChildRef::Inline(s) = child { collect_all_ids(s, ids); }
     }
-    for child in &step.children {
-        if let ChildRef::Inline(s) = child {
-            collect_all_ids(s, ids);
-        }
-    }
-    // Also collect IDs from inline steps in on-return/conditions
-    check_inline_ids(&step.action, ids);
-}
-
-fn check_inline_ids(action: &Action, ids: &mut std::collections::HashSet<String>) {
-    match action {
-        Action::Shell { on_return: Some(map), .. } => {
-            for sr in map.values() {
-                if let StepRef::Inline(s) = sr { collect_all_ids(s, ids); }
-            }
-        }
-        Action::Fs { if_exists: Some(Condition::Execute { execute }), .. } |
-        Action::Fs { if_not_exists: Some(Condition::Execute { execute }), .. } => {
-            if let StepRef::Inline(s) = execute { collect_all_ids(s, ids); }
-        }
-        _ => {}
-    }
+    let _ = visit_step_refs(step, &mut |sr| {
+        if let StepRef::Inline(s) = sr { collect_all_ids(s, ids); }
+        Ok(())
+    });
 }
 
 fn check_refs(step: &Step, ids: &std::collections::HashSet<String>) -> Result<(), ConfigError> {
-    // Check children refs
-    for child in &step.children {
+    for child in &step.then {
         match child {
-            ChildRef::Id(id) => {
-                if !ids.contains(id) { return Err(ConfigError::UnknownRef(id.clone())); }
-            }
+            ChildRef::Id(id) => { if !ids.contains(id) { return Err(ConfigError::UnknownRef(id.clone())); } }
             ChildRef::Inline(s) => check_refs(s, ids)?,
         }
     }
-    // Check action refs
-    check_action_refs(&step.action, ids)
-}
-
-fn check_action_refs(action: &Action, ids: &std::collections::HashSet<String>) -> Result<(), ConfigError> {
-    match action {
-        Action::Shell { on_return: Some(map), .. } => {
-            for sr in map.values() {
-                check_step_ref(sr, ids)?;
-            }
-        }
-        Action::Fs { if_exists, if_not_exists, .. } => {
-            if let Some(Condition::Execute { execute }) = if_exists { check_step_ref(execute, ids)?; }
-            if let Some(Condition::Execute { execute }) = if_not_exists { check_step_ref(execute, ids)?; }
-        }
-        _ => {}
-    }
-    Ok(())
+    visit_step_refs(step, &mut |sr| check_step_ref(sr, ids))
 }
 
 fn check_step_ref(sr: &StepRef, ids: &std::collections::HashSet<String>) -> Result<(), ConfigError> {
     match sr {
-        StepRef::Id(id) => {
-            if !ids.contains(id) { Err(ConfigError::UnknownRef(id.clone())) } else { Ok(()) }
-        }
+        StepRef::Id(id) => { if !ids.contains(id) { Err(ConfigError::UnknownRef(id.clone())) } else { Ok(()) } }
         StepRef::Inline(s) => check_refs(s, ids),
+    }
+}
+
+/// Visit all StepRef values in a step's on-success, on-failure, on-return, and conditions.
+fn visit_step_refs(step: &Step, f: &mut impl FnMut(&StepRef) -> Result<(), ConfigError>) -> Result<(), ConfigError> {
+    if let Some(refs) = &step.on_success { visit_steprefs(refs, f)?; }
+    if let Some(refs) = &step.on_failure { visit_steprefs(refs, f)?; }
+    if let Some(map) = &step.on_return {
+        for refs in map.values() { visit_steprefs(refs, f)?; }
+    }
+    if let Action::Fs { if_exists: Some(Condition::Execute { execute }), .. } = &step.action { f(execute)?; }
+    if let Action::Fs { if_not_exists: Some(Condition::Execute { execute }), .. } = &step.action { f(execute)?; }
+    Ok(())
+}
+
+fn visit_steprefs(refs: &StepRefs, f: &mut impl FnMut(&StepRef) -> Result<(), ConfigError>) -> Result<(), ConfigError> {
+    match refs {
+        StepRefs::Single(sr) => f(sr),
+        StepRefs::Multiple(v) => { for sr in v { f(sr)?; } Ok(()) }
     }
 }
 
@@ -359,17 +345,12 @@ mod tests {
             "name": "test", "version": "1.0.0",
             "steps": [{
                 "name": "run",
-                "action": {
-                    "kind": "shell",
-                    "commands": ["echo hi"],
-                    "dir": "~",
-                    "env": {"FOO": "bar"}
-                }
+                "action": { "kind": "shell", "commands": ["echo hi"], "dir": "~", "env": {"FOO": "bar"} }
             }]
         }"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
         match &cfg.steps[0].action {
-            Action::Shell { commands, dir, env, .. } => {
+            Action::Shell { commands, dir, env } => {
                 assert_eq!(commands, &["echo hi"]);
                 assert_eq!(dir.as_deref(), Some("~"));
                 assert_eq!(env.as_ref().unwrap()["FOO"], "bar");
@@ -384,20 +365,15 @@ mod tests {
             "name": "test", "version": "1.0.0",
             "steps": [{
                 "name": "clone",
-                "action": {
-                    "kind": "git",
-                    "repo": "https://github.com/user/repo.git",
-                    "dest": "~/.dotfiles",
-                    "if-exists": "pull"
-                }
+                "action": { "kind": "git", "repo": "https://github.com/user/repo.git", "dest": "~/.dotfiles", "on-conflict": "pull" }
             }]
         }"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
         match &cfg.steps[0].action {
-            Action::Git { repo, dest, if_exists } => {
+            Action::Git { repo, dest, on_conflict } => {
                 assert_eq!(repo, "https://github.com/user/repo.git");
                 assert_eq!(dest, "~/.dotfiles");
-                assert_eq!(*if_exists, GitIfExists::Pull);
+                assert_eq!(*on_conflict, GitOnConflict::Pull);
             }
             _ => panic!("expected Git"),
         }
@@ -409,24 +385,17 @@ mod tests {
             "name": "test", "version": "1.0.0",
             "steps": [{
                 "name": "create",
-                "action": {
-                    "kind": "fs",
-                    "action": "create",
-                    "path": "~/projects/",
-                    "recurse": true,
-                    "if-exists": "skip"
-                }
+                "action": { "kind": "fs", "create": { "path": "~/projects/", "recurse": true }, "if-exists": "skip" }
             }]
         }"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
         match &cfg.steps[0].action {
-            Action::Fs { action, recurse, target, if_exists, .. } => {
-                assert_eq!(*action, FsAction::Create);
+            Action::Fs { op: FsOp::Create { path, recurse, .. }, if_exists, .. } => {
+                assert!(matches!(path, PathSpec::Single(p) if p == "~/projects/"));
                 assert!(recurse);
-                assert!(matches!(target, FsTarget::Path { path: PathSpec::Single(p) } if p == "~/projects/"));
                 assert!(matches!(if_exists, Some(Condition::Action(ConditionAction::Skip))));
             }
-            _ => panic!("expected Fs"),
+            _ => panic!("expected Fs Create"),
         }
     }
 
@@ -436,20 +405,33 @@ mod tests {
             "name": "test", "version": "1.0.0",
             "steps": [{
                 "name": "create",
-                "action": {
-                    "kind": "fs",
-                    "action": "create",
-                    "path": ["~/a/", "~/b/"],
-                    "recurse": true
-                }
+                "action": { "kind": "fs", "create": { "path": ["~/a/", "~/b/"], "recurse": true } }
             }]
         }"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
         match &cfg.steps[0].action {
-            Action::Fs { target, .. } => {
-                assert!(matches!(target, FsTarget::Path { path: PathSpec::Multiple(v) } if v.len() == 2));
+            Action::Fs { op: FsOp::Create { path, .. }, .. } => {
+                assert!(matches!(path, PathSpec::Multiple(v) if v.len() == 2));
             }
-            _ => panic!("expected Fs"),
+            _ => panic!("expected Fs Create"),
+        }
+    }
+
+    #[test]
+    fn parse_fs_create_with_content() {
+        let json = r#"{
+            "name": "test", "version": "1.0.0",
+            "steps": [{
+                "name": "create",
+                "action": { "kind": "fs", "create": { "path": "~/file.txt", "content": "hello world" } }
+            }]
+        }"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        match &cfg.steps[0].action {
+            Action::Fs { op: FsOp::Create { content, .. }, .. } => {
+                assert_eq!(content.as_deref(), Some("hello world"));
+            }
+            _ => panic!("expected Fs Create"),
         }
     }
 
@@ -459,23 +441,17 @@ mod tests {
             "name": "test", "version": "1.0.0",
             "steps": [{
                 "name": "link",
-                "action": {
-                    "kind": "fs",
-                    "action": "symlink",
-                    "from": "~/.dotfiles/.bashrc",
-                    "to": "~/.bashrc",
-                    "if-exists": "overwrite"
-                }
+                "action": { "kind": "fs", "symlink": { "from": "~/.dotfiles/.bashrc", "to": "~/.bashrc" }, "if-exists": "overwrite" }
             }]
         }"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
         match &cfg.steps[0].action {
-            Action::Fs { action, target, if_exists, .. } => {
-                assert_eq!(*action, FsAction::Symlink);
-                assert!(matches!(target, FsTarget::FromTo { from, to } if from == "~/.dotfiles/.bashrc" && to == "~/.bashrc"));
+            Action::Fs { op: FsOp::Symlink { from, to }, if_exists, .. } => {
+                assert_eq!(from, "~/.dotfiles/.bashrc");
+                assert_eq!(to, "~/.bashrc");
                 assert!(matches!(if_exists, Some(Condition::Action(ConditionAction::Overwrite))));
             }
-            _ => panic!("expected Fs"),
+            _ => panic!("expected Fs Symlink"),
         }
     }
 
@@ -485,13 +461,7 @@ mod tests {
             "name": "test", "version": "1.0.0",
             "steps": [{
                 "name": "copy",
-                "action": {
-                    "kind": "fs",
-                    "action": "copy",
-                    "from": "a.txt",
-                    "to": "b.txt",
-                    "if-exists": { "execute": "handler-id" }
-                }
+                "action": { "kind": "fs", "copy": { "from": "a.txt", "to": "b.txt" }, "if-exists": { "execute": "handler-id" } }
             }]
         }"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
@@ -504,29 +474,103 @@ mod tests {
     }
 
     #[test]
+    fn parse_fs_delete() {
+        let json = r#"{
+            "name": "test", "version": "1.0.0",
+            "steps": [{
+                "name": "del",
+                "action": { "kind": "fs", "delete": { "path": "~/.cache/old", "recurse": true }, "if-not-exists": "skip" }
+            }]
+        }"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        match &cfg.steps[0].action {
+            Action::Fs { op: FsOp::Delete { path, recurse }, if_not_exists, .. } => {
+                assert!(matches!(path, PathSpec::Single(p) if p == "~/.cache/old"));
+                assert!(recurse);
+                assert!(matches!(if_not_exists, Some(Condition::Action(ConditionAction::Skip))));
+            }
+            _ => panic!("expected Fs Delete"),
+        }
+    }
+
+    #[test]
+    fn parse_fs_move() {
+        let json = r#"{
+            "name": "test", "version": "1.0.0",
+            "steps": [{
+                "name": "mv",
+                "action": { "kind": "fs", "move": { "from": "a", "to": "b" }, "if-not-exists": "skip" }
+            }]
+        }"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        match &cfg.steps[0].action {
+            Action::Fs { op: FsOp::Move { from, to }, .. } => {
+                assert_eq!(from, "a");
+                assert_eq!(to, "b");
+            }
+            _ => panic!("expected Fs Move"),
+        }
+    }
+
+    #[test]
+    fn parse_on_success_single() {
+        let json = r#"{
+            "name": "test", "version": "1.0.0",
+            "steps": [{
+                "name": "run",
+                "action": { "kind": "shell", "commands": ["echo"] },
+                "on-success": "next-step"
+            }]
+        }"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        assert!(matches!(&cfg.steps[0].on_success, Some(StepRefs::Single(StepRef::Id(id))) if id == "next-step"));
+    }
+
+    #[test]
+    fn parse_on_success_array() {
+        let json = r#"{
+            "name": "test", "version": "1.0.0",
+            "steps": [{
+                "name": "run",
+                "action": { "kind": "shell", "commands": ["echo"] },
+                "on-success": ["step-a", "step-b"]
+            }]
+        }"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        match &cfg.steps[0].on_success {
+            Some(StepRefs::Multiple(v)) => assert_eq!(v.len(), 2),
+            _ => panic!("expected Multiple"),
+        }
+    }
+
+    #[test]
+    fn parse_on_failure() {
+        let json = r#"{
+            "name": "test", "version": "1.0.0",
+            "steps": [{
+                "name": "run",
+                "action": { "kind": "shell", "commands": ["echo"] },
+                "on-failure": "error-handler"
+            }]
+        }"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        assert!(matches!(&cfg.steps[0].on_failure, Some(StepRefs::Single(StepRef::Id(id))) if id == "error-handler"));
+    }
+
+    #[test]
     fn parse_on_return() {
         let json = r#"{
             "name": "test", "version": "1.0.0",
             "steps": [{
                 "name": "run",
-                "action": {
-                    "kind": "shell",
-                    "commands": ["echo hi"],
-                    "on-return": {
-                        "0": "success-step",
-                        "_": "fallback-step"
-                    }
-                }
+                "action": { "kind": "shell", "commands": ["echo"] },
+                "on-return": { "0": "success-step", "_": "fallback-step" }
             }]
         }"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
-        match &cfg.steps[0].action {
-            Action::Shell { on_return: Some(map), .. } => {
-                assert!(matches!(&map["0"], StepRef::Id(id) if id == "success-step"));
-                assert!(matches!(&map["_"], StepRef::Id(id) if id == "fallback-step"));
-            }
-            _ => panic!("expected Shell with on-return"),
-        }
+        let map = cfg.steps[0].on_return.as_ref().unwrap();
+        assert!(matches!(&map["0"], StepRefs::Single(StepRef::Id(id)) if id == "success-step"));
+        assert!(matches!(&map["_"], StepRefs::Single(StepRef::Id(id)) if id == "fallback-step"));
     }
 
     #[test]
@@ -536,7 +580,7 @@ mod tests {
             "steps": [{
                 "name": "run",
                 "action": { "kind": "shell", "commands": ["echo"] },
-                "meta": { "optional": true, "fallible": true, "silent": ["stdout", "stderr"] }
+                "meta": { "optional": true, "fallible": true, "silent": ["stdout", "stderr"], "retries": 3, "retry-delay": 2.0 }
             }]
         }"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
@@ -544,25 +588,34 @@ mod tests {
         assert!(meta.optional);
         assert!(meta.fallible);
         assert_eq!(meta.silent, vec![Silent::Stdout, Silent::Stderr]);
+        assert_eq!(meta.retries, Some(3));
+        assert_eq!(meta.retry_delay, Some(2.0));
     }
 
     #[test]
-    fn parse_children_mixed() {
+    fn parse_then_mixed() {
         let json = r#"{
             "name": "test", "version": "1.0.0",
             "steps": [{
                 "name": "parent",
                 "action": { "kind": "shell", "commands": ["echo"] },
-                "children": [
+                "then": [
                     "ref-id",
                     { "name": "inline", "action": { "kind": "shell", "commands": ["echo inline"] } }
                 ]
             }]
         }"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
-        assert_eq!(cfg.steps[0].children.len(), 2);
-        assert!(matches!(&cfg.steps[0].children[0], ChildRef::Id(id) if id == "ref-id"));
-        assert!(matches!(&cfg.steps[0].children[1], ChildRef::Inline(_)));
+        assert_eq!(cfg.steps[0].then.len(), 2);
+        assert!(matches!(&cfg.steps[0].then[0], ChildRef::Id(id) if id == "ref-id"));
+        assert!(matches!(&cfg.steps[0].then[1], ChildRef::Inline(_)));
+    }
+
+    #[test]
+    fn parse_global_retries() {
+        let json = r#"{ "name": "test", "version": "1.0.0", "retries": 5, "steps": [] }"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.retries, Some(5));
     }
 
     #[test]
@@ -575,40 +628,41 @@ mod tests {
             ]
         }"#;
         let dir = std::env::temp_dir();
-        let path = dir.join("devsetup_dup_test.json");
+        let path = dir.join("rig_dup_test.json");
         std::fs::write(&path, json).unwrap();
         assert!(matches!(parse_config(path.to_str().unwrap(), &HashMap::new()), Err(ConfigError::DuplicateId(_))));
         std::fs::remove_file(path).ok();
     }
 
     #[test]
-    fn unknown_child_ref_rejected() {
+    fn unknown_then_ref_rejected() {
         let json = r#"{
             "name": "test", "version": "1.0.0",
             "steps": [{
                 "name": "parent",
                 "action": { "kind": "shell", "commands": ["echo"] },
-                "children": ["nonexistent"]
+                "then": ["nonexistent"]
             }]
         }"#;
         let dir = std::env::temp_dir();
-        let path = dir.join("devsetup_unknownref_test.json");
+        let path = dir.join("rig_unknownref_test.json");
         std::fs::write(&path, json).unwrap();
         assert!(matches!(parse_config(path.to_str().unwrap(), &HashMap::new()), Err(ConfigError::UnknownRef(_))));
         std::fs::remove_file(path).ok();
     }
 
     #[test]
-    fn unknown_on_return_ref_rejected() {
+    fn unknown_on_success_ref_rejected() {
         let json = r#"{
             "name": "test", "version": "1.0.0",
             "steps": [{
                 "name": "run",
-                "action": { "kind": "shell", "commands": ["echo"], "on-return": { "0": "ghost" } }
+                "action": { "kind": "shell", "commands": ["echo"] },
+                "on-success": "ghost"
             }]
         }"#;
         let dir = std::env::temp_dir();
-        let path = dir.join("devsetup_unknownor_test.json");
+        let path = dir.join("rig_unknownsuccess_test.json");
         std::fs::write(&path, json).unwrap();
         assert!(matches!(parse_config(path.to_str().unwrap(), &HashMap::new()), Err(ConfigError::UnknownRef(_))));
         std::fs::remove_file(path).ok();
@@ -620,11 +674,11 @@ mod tests {
             "name": "test", "version": "1.0.0",
             "steps": [
                 { "id": "a", "name": "a", "action": { "kind": "shell", "commands": ["echo"] } },
-                { "name": "b", "action": { "kind": "shell", "commands": ["echo"] }, "children": ["a"] }
+                { "name": "b", "action": { "kind": "shell", "commands": ["echo"] }, "then": ["a"] }
             ]
         }"#;
         let dir = std::env::temp_dir();
-        let path = dir.join("devsetup_validref_test.json");
+        let path = dir.join("rig_validref_test.json");
         std::fs::write(&path, json).unwrap();
         assert!(parse_config(path.to_str().unwrap(), &HashMap::new()).is_ok());
         std::fs::remove_file(path).ok();
@@ -635,12 +689,12 @@ mod tests {
         let json = r#"{
             "name": "test", "version": "1.0.0",
             "steps": [
-                { "id": "a", "name": "a", "action": { "kind": "shell", "commands": ["echo"] }, "children": ["b"] },
-                { "id": "b", "name": "b", "action": { "kind": "shell", "commands": ["echo"] }, "children": ["a"] }
+                { "id": "a", "name": "a", "action": { "kind": "shell", "commands": ["echo"] }, "then": ["b"] },
+                { "id": "b", "name": "b", "action": { "kind": "shell", "commands": ["echo"] }, "then": ["a"] }
             ]
         }"#;
         let dir = std::env::temp_dir();
-        let path = dir.join("devsetup_cycle_test.json");
+        let path = dir.join("rig_cycle_test.json");
         std::fs::write(&path, json).unwrap();
         assert!(parse_config(path.to_str().unwrap(), &HashMap::new()).is_ok());
         std::fs::remove_file(path).ok();
@@ -671,12 +725,9 @@ mod tests {
             }]
         }"#;
         let dir = std::env::temp_dir();
-        let path = dir.join("devsetup_var_test.json");
+        let path = dir.join("rig_var_test.json");
         std::fs::write(&path, json).unwrap();
-        let vars = HashMap::from([
-            ("project".into(), "my-app".into()),
-            ("greeting".into(), "hello".into()),
-        ]);
+        let vars = HashMap::from([("project".into(), "my-app".into()), ("greeting".into(), "hello".into())]);
         let cfg = parse_config(path.to_str().unwrap(), &vars).unwrap();
         assert_eq!(cfg.name, "my-app");
         match &cfg.steps[0].action {
@@ -688,12 +739,9 @@ mod tests {
 
     #[test]
     fn undefined_var_rejected() {
-        let json = r#"{
-            "name": "{{missing}}", "version": "1.0.0",
-            "steps": []
-        }"#;
+        let json = r#"{ "name": "{{missing}}", "version": "1.0.0", "steps": [] }"#;
         let dir = std::env::temp_dir();
-        let path = dir.join("devsetup_undef_test.json");
+        let path = dir.join("rig_undef_test.json");
         std::fs::write(&path, json).unwrap();
         assert!(matches!(
             parse_config(path.to_str().unwrap(), &HashMap::new()),

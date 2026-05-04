@@ -2,10 +2,10 @@
     // ── Top-level config ──
     "name": "My Dev Environment",
     "version": "1.0.0",
-    "description": "Optional description",
+    "description": "Full example showing all rig features",
 
     "steps": [
-        // ── Shell ──
+        // ── Shell with on-success/on-failure/on-return ──
         {
             "id": "install-tools",
             "name": "Install dev tools",
@@ -14,19 +14,20 @@
                 "kind": "shell",
                 "commands": ["apt install -y ripgrep fzf tmux"],
                 "dir": "~",
-                "env": { "DEBIAN_FRONTEND": "noninteractive" },
-                "on-return": {
-                    "0": "link-configs",                // reference step by id
-                    "1": {                              // inline step
-                        "name": "retry",
-                        "action": { "kind": "shell", "commands": ["echo install failed"] }
-                    },
-                    "_": "handle-error"                 // wildcard — any unmatched code
-                }
+                "env": { "DEBIAN_FRONTEND": "noninteractive" }
             },
-            "children": [
-                "link-configs",                         // reference by id
-                {                                       // inline child
+            "on-success": "link-configs",
+            "on-failure": "handle-error",
+            "on-return": {
+                "1": {
+                    "name": "retry message",
+                    "action": { "kind": "shell", "commands": ["echo 'apt returned 1, retrying...'"] }
+                },
+                "_": "handle-error"
+            },
+            "then": [
+                "link-configs",
+                {
                     "name": "quick cleanup",
                     "action": { "kind": "shell", "commands": ["echo done"] }
                 }
@@ -34,11 +35,11 @@
             "meta": {
                 "optional": false,
                 "fallible": false,
-                "silent": ["stdout"]                    // suppress stdout; shown in --verbose
+                "silent": ["stdout"]
             }
         },
 
-        // ── Git ──
+        // ── Git with on-conflict ──
         {
             "id": "clone-dotfiles",
             "name": "Clone dotfiles",
@@ -46,7 +47,7 @@
                 "kind": "git",
                 "repo": "https://github.com/user/dotfiles.git",
                 "dest": "~/.dotfiles",
-                "if-exists": "pull"                     // skip (default), pull, fail
+                "on-conflict": "pull"       // skip (default), pull, fail
             }
         },
 
@@ -56,9 +57,10 @@
             "name": "Symlink configs",
             "action": {
                 "kind": "fs",
-                "action": "symlink",
-                "from": "~/.dotfiles/.bashrc",
-                "to": "~/.bashrc",
+                "symlink": {
+                    "from": "~/.dotfiles/.bashrc",
+                    "to": "~/.bashrc"
+                },
                 "if-exists": "overwrite"
             }
         },
@@ -69,22 +71,25 @@
             "name": "Create project dirs",
             "action": {
                 "kind": "fs",
-                "action": "create",
-                "path": ["~/projects/", "~/tmp/", "~/.config/devsetup/"],   // trailing / = folder
-                "recurse": true,
+                "create": {
+                    "path": ["~/projects/", "~/tmp/", "~/.config/devsetup/"],
+                    "recurse": true
+                },
                 "if-exists": "skip"
             }
         },
 
-        // ── FS: create (single file) ──
+        // ── FS: create with content ──
         {
             "id": "create-config",
-            "name": "Create empty config",
+            "name": "Create default config",
             "action": {
                 "kind": "fs",
-                "action": "create",
-                "path": "~/.config/devsetup/config.json",                   // no trailing / = file
-                "recurse": true,
+                "create": {
+                    "path": "~/.config/devsetup/config.json",
+                    "recurse": true,
+                    "content": "{\n  \"theme\": \"dark\"\n}"
+                },
                 "if-exists": "skip"
             }
         },
@@ -95,11 +100,12 @@
             "name": "Copy template config",
             "action": {
                 "kind": "fs",
-                "action": "copy",
-                "from": "~/.dotfiles/template.conf",
-                "to": "~/.config/devsetup/config.conf",
-                "if-exists": { "execute": "handle-overwrite" },             // execute a step on conflict
-                "if-not-exists": "panic"                                    // source missing → fail
+                "copy": {
+                    "from": "~/.dotfiles/template.conf",
+                    "to": "~/.config/devsetup/config.conf"
+                },
+                "if-exists": { "execute": "handle-overwrite" },
+                "if-not-exists": "panic"
             }
         },
 
@@ -109,10 +115,11 @@
             "name": "Move old config to backup",
             "action": {
                 "kind": "fs",
-                "action": "move",
-                "from": "~/.old-config",
-                "to": "~/.old-config.bak",
-                "if-not-exists": "skip"                                     // source missing → skip
+                "move": {
+                    "from": "~/.old-config",
+                    "to": "~/.old-config.bak"
+                },
+                "if-not-exists": "skip"
             }
         },
 
@@ -122,9 +129,10 @@
             "name": "Delete build cache",
             "action": {
                 "kind": "fs",
-                "action": "delete",
-                "path": "~/.cache/devsetup",
-                "recurse": true,
+                "delete": {
+                    "path": "~/.cache/devsetup",
+                    "recurse": true
+                },
                 "if-not-exists": "skip"
             }
         },

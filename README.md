@@ -46,63 +46,85 @@ Configs are JSON or JSONC (comments supported). A config has a name, version, an
 
 ### shell
 
-Run commands via `sh -c`. Supports working directory, env vars, and exit code handling.
+Run commands via `sh -c`. Supports working directory and env vars.
 
 ```jsonc
 {
   "kind": "shell",
   "commands": ["echo hello", "make build"],
   "dir": "~/project",
-  "env": { "CC": "gcc" },
-  "on-return": {
-    "0": "next-step",    // exit 0 → run step by ID
-    "_": "error-handler" // wildcard for unmatched codes
-  }
+  "env": { "CC": "gcc" }
 }
 ```
 
 ### git
 
-Clone a repo. Handle existing destinations.
+Clone a repo. Handle existing destinations with `on-conflict`.
 
 ```jsonc
 {
   "kind": "git",
   "repo": "https://github.com/user/dotfiles.git",
   "dest": "~/.dotfiles",
-  "if-exists": "pull" // skip (default), pull, fail
+  "on-conflict": "pull" // skip (default), pull, fail
 }
 ```
 
 ### fs
 
-File system operations: `create`, `symlink`, `copy`, `move`, `delete`.
+File system operations use nested sub-action objects:
 
 ```jsonc
 // Create directories and files (trailing / = directory)
-{ "kind": "fs", "action": "create", "path": ["~/projects/", "~/tmp/"], "recurse": true, "if-exists": "skip" }
+{ "kind": "fs", "create": { "path": ["~/projects/", "~/tmp/"], "recurse": true }, "if-exists": "skip" }
+
+// Create a file with inline content
+{ "kind": "fs", "create": { "path": "~/.config/app.json", "content": "{\"theme\": \"dark\"}", "recurse": true } }
 
 // Symlink
-{ "kind": "fs", "action": "symlink", "from": "~/.dotfiles/.bashrc", "to": "~/.bashrc", "if-exists": "overwrite" }
+{ "kind": "fs", "symlink": { "from": "~/.dotfiles/.bashrc", "to": "~/.bashrc" }, "if-exists": "overwrite" }
 
 // Copy / Move
-{ "kind": "fs", "action": "copy", "from": "template.conf", "to": "~/.config/app.conf", "if-not-exists": "panic" }
+{ "kind": "fs", "copy": { "from": "template.conf", "to": "~/.config/app.conf" }, "if-not-exists": "panic" }
 
 // Delete
-{ "kind": "fs", "action": "delete", "path": "~/.cache/old", "recurse": true, "if-not-exists": "skip" }
+{ "kind": "fs", "delete": { "path": "~/.cache/old", "recurse": true }, "if-not-exists": "skip" }
 ```
 
 ## Step Features
 
-### Children
+### Handlers: on-success, on-failure, on-return
 
-Steps can have children that run after the parent succeeds. Reference by ID or inline:
+Steps can react to their action's outcome. Resolution order: `on-return[exact code]` → `on-return["_"]` → `on-success`/`on-failure`.
+
+```jsonc
+{
+  "name": "Install tools",
+  "action": { "kind": "shell", "commands": ["apt install -y ripgrep"] },
+  "on-success": "next-step",           // exit 0
+  "on-failure": "error-handler",       // non-zero exit (after retries exhausted)
+  "on-return": {
+    "1": "retry-step",                 // overrides on-failure for exit code 1
+    "_": "catch-all"                   // overrides on-failure for all other codes
+  }
+}
+```
+
+Handler values can be a single step ref or an array:
+
+```jsonc
+"on-success": ["step-a", "step-b"]
+```
+
+### then
+
+Steps can have sub-steps that run after the action succeeds (or is handled). Reference by ID or inline:
 
 ```jsonc
 {
   "name": "Setup",
   "action": { "kind": "shell", "commands": ["make install"] },
-  "children": [
+  "then": [
     "verify-step",
     { "name": "inline cleanup", "action": { "kind": "shell", "commands": ["make clean"] } }
   ]
@@ -118,8 +140,8 @@ Control execution behavior per step:
   "optional": true,     // Skipped unless referenced by ID
   "fallible": true,     // Failure doesn't halt the run
   "silent": ["stdout"], // Suppress output (--verbose overrides)
-  "max-retries": 3,     // Allow re-entry via references
-  "retry-delay": 2.0    // Seconds to wait before retry
+  "retries": 3,         // Auto-retry on failure
+  "retry-delay": 2.0    // Seconds to wait before each retry
 }
 ```
 
@@ -133,7 +155,7 @@ Control execution behavior per step:
 
 ## Dry Run
 
-`--dry-run` shows a complete audit of the config — all steps including optional ones, IDs, meta flags, conditions, on-return mappings, and children:
+`--dry-run` shows a complete audit of the config — all steps including optional ones, IDs, meta flags, conditions, handlers, and sub-steps:
 
 ```
 [dry-run] my-env
@@ -141,9 +163,8 @@ Control execution behavior per step:
 
 → Install tools (id: install) [silent: stdout]
     sh -c "apt install -y ripgrep"
-    on-return:
-      0 → next-step
-      _ → error-handler
+    on-success: next-step
+    on-failure: error-handler
 
 → Error handler (id: error-handler) [optional] [fallible]
     sh -c "echo 'something went wrong'"

@@ -1,9 +1,9 @@
 {
     "$schema": "../schema.json",
-    // Bootstrap devsetup: install Rust, clone the repo, and build the tool
-    "name": "bootstrap-devsetup",
+    // Bootstrap rig: install Rust, clone the repo, and build the tool
+    "name": "bootstrap-rig",
     "version": "1.0.0",
-    "description": "Install Rust toolchain, clone devsetup, and build it",
+    "description": "Install Rust toolchain, clone rig, and build it",
 
     "steps": [
         {
@@ -11,12 +11,10 @@
             "name": "Check if cargo is installed",
             "action": {
                 "kind": "shell",
-                "commands": ["cargo --version"],
-                "on-return": {
-                    "0": "clone-repo",
-                    "_": "install-rust"
-                }
+                "commands": ["cargo --version"]
             },
+            "on-success": "clone-repo",
+            "on-failure": "install-rust",
             "meta": { "silent": ["stdout"] }
         },
         {
@@ -33,35 +31,33 @@
         },
         {
             "id": "clone-repo",
-            "name": "Clone devsetup repo",
+            "name": "Clone rig repo",
             "action": {
                 "kind": "git",
-                "repo": "https://github.com/user/devsetup.git",
-                "dest": "~/devsetup",
-                "if-exists": "pull"
+                "repo": "https://github.com/user/rig.git",
+                "dest": "~/rig",
+                "on-conflict": "pull"
             },
             "meta": { "optional": true }
         },
         {
             "id": "build",
-            "name": "Build devsetup (release)",
+            "name": "Build rig (release)",
             "action": {
                 "kind": "shell",
                 "commands": ["cargo build --release"],
-                "dir": "~/devsetup",
-                "on-return": {
-                    "0": "verify",
-                    "_": "build-failed"
-                }
-            }
+                "dir": "~/rig"
+            },
+            "on-success": "verify",
+            "on-failure": "build-failed"
         },
         {
             "id": "verify",
             "name": "Verify the binary works",
             "action": {
                 "kind": "shell",
-                "commands": ["./target/release/devsetup --help"],
-                "dir": "~/devsetup"
+                "commands": ["./target/release/rig --help"],
+                "dir": "~/rig"
             },
             "meta": { "optional": true }
         },
@@ -70,9 +66,7 @@
             "name": "Handle build failure",
             "action": {
                 "kind": "shell",
-                "commands": [
-                    "echo 'Build failed. Check Rust version: rustc --version'"
-                ]
+                "commands": ["echo 'Build failed. Check Rust version: rustc --version'"]
             },
             "meta": { "optional": true, "fallible": true }
         }

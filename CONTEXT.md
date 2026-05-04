@@ -14,13 +14,13 @@ A Rust CLI tool called `rig` that reads a JSON/JSONC config and executes setup s
 
 ## Config Structure
 
-Actions are nested objects with a `kind` discriminator. Steps can have an `id` for referencing, `children` that run after the action, and `meta` for execution control.
+Actions are nested objects with a `kind` discriminator. Steps can have an `id` for referencing, `then` sub-steps that run after the action, and `meta` for execution control.
 
 ```json
 {
   "name": "my-env",
   "version": "1.0.0",
-  "max-retries": 2,
+  "retries": 2,
   "steps": [
     {
       "id": "install",
@@ -29,14 +29,16 @@ Actions are nested objects with a `kind` discriminator. Steps can have an `id` f
         "kind": "shell",
         "commands": ["apt install -y ripgrep"],
         "dir": "~",
-        "env": { "DEBIAN_FRONTEND": "noninteractive" },
-        "on-return": { "1": "handle-error", "_": "handle-error" }
+        "env": { "DEBIAN_FRONTEND": "noninteractive" }
       },
-      "children": ["next-step"],
+      "on-success": "next-step",
+      "on-failure": "handle-error",
+      "on-return": { "1": "handle-error", "_": "handle-error" },
+      "then": ["next-step"],
       "meta": {
         "fallible": true,
         "silent": ["stdout"],
-        "max-retries": 3,
+        "retries": 3,
         "retry-delay": 2.0
       }
     }
@@ -46,15 +48,19 @@ Actions are nested objects with a `kind` discriminator. Steps can have an `id` f
 
 ## Key Features
 
-- **`on-return`** — map exit codes to step refs (by ID or inline). `_` = wildcard. Handled steps still run children.
-- **`if-exists` / `if-not-exists`** — `skip`, `overwrite`, `append`, `panic`, or `{ "execute": "step-id" }`
-- **`children`** — run after parent succeeds. Array of step IDs or inline steps. Skipped if parent fails.
+- **`on-success`** — step ref(s) to run on exit 0 (unless overridden by on-return).
+- **`on-failure`** — step ref(s) to run on non-zero exit (after retries exhausted, unless overridden by on-return).
+- **`on-return`** — map exit codes to step refs. `_` = wildcard. Resolution: exact code → `_` → on-success/on-failure.
+- **`then`** — sub-steps that run after the action succeeds or is handled. Array of step IDs or inline steps.
+- **`if-exists` / `if-not-exists`** — `skip`, `overwrite`, `append`, `panic`, or `{ "execute": "step-id" }` (fs actions only).
+- **`on-conflict`** — git-specific: `skip` (default), `pull`, `fail`.
 - **`meta.optional`** — skipped in normal flow; only runs when referenced by ID.
-- **`meta.fallible`** — failure logged but doesn't halt the run. Children don't run on failure.
+- **`meta.fallible`** — failure logged but doesn't halt the run. `then` steps don't run on failure.
 - **`meta.silent`** — suppress `stdout`/`stderr`; shown with `--verbose`.
-- **`meta.max-retries`** — how many times a step can be re-entered via references. Overrides global.
+- **`meta.retries`** — auto-retry on failure N times. Overrides global `retries`.
 - **`meta.retry-delay`** — seconds to sleep before each retry.
-- **`max-retries` (top-level)** — global default for all steps. Steps without per-step or global max-retries cannot be re-entered (cycles caught at runtime).
+- **`retries` (top-level)** — global default retry count for all steps.
+- **Cycle protection** — hard limit of 64 entries per step (not user-configurable).
 - **Tilde expansion** — `~` expands to `$HOME` in all path fields.
 - **JSONC support** — `//` and `/* */` comments via `json_comments` crate.
 - **Colored output** — via `aml` crate (green success, yellow warnings, red errors, cyan IDs, dim labels).
@@ -62,21 +68,23 @@ Actions are nested objects with a `kind` discriminator. Steps can have an `id` f
 
 ## FS Actions
 
-| Action    | Fields needed     | Supports                     |
-|-----------|-------------------|------------------------------|
-| `create`  | `path`            | `recurse`, `if-exists`       |
-| `symlink` | `from`, `to`      | `if-exists`                  |
-| `copy`    | `from`, `to`      | `if-exists`, `if-not-exists` |
-| `move`    | `from`, `to`      | `if-exists`, `if-not-exists` |
-| `delete`  | `path`            | `recurse`, `if-not-exists`   |
+FS actions use nested sub-action objects within `kind: "fs"`:
 
-`path` can be a string or array. Trailing `/` = directory.
+| Sub-action | Fields                    | Supports                     |
+|------------|---------------------------|------------------------------|
+| `create`   | `path`, `recurse`, `content` | `if-exists`               |
+| `symlink`  | `from`, `to`              | `if-exists`                  |
+| `copy`     | `from`, `to`              | `if-exists`, `if-not-exists` |
+| `move`     | `from`, `to`              | `if-exists`, `if-not-exists` |
+| `delete`   | `path`, `recurse`         | `if-not-exists`              |
+
+`path` can be a string or array. Trailing `/` = directory. `content` writes inline text to a file.
 
 ## CLI
 
 ```
 rig <config-file>                # Run
-rig <config-file> --dry-run      # Full audit: shows all steps, meta, conditions, children
+rig <config-file> --dry-run      # Full audit: shows all steps, meta, conditions, handlers
 rig <config-file> --verbose      # Show suppressed output
 rig <config-file> --only <id>    # Run a single step by ID
 rig <config-file> --validate     # Parse and validate without executing
@@ -87,9 +95,9 @@ rig <config-file> --validate     # Parse and validate without executing
 `--dry-run` shows a complete audit of the config including:
 - All steps (including optional), with IDs and meta flags
 - Action details (commands, paths, env, dir)
-- `on-return` code→step mappings
+- `on-success`, `on-failure`, `on-return` handlers
 - `if-exists`/`if-not-exists` conditions
-- Children (ID refs and inline)
+- `then` sub-steps (ID refs and inline)
 - Summary (total, optional, fallible counts)
 
 ## JSON Schema
