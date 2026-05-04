@@ -20,6 +20,7 @@ src/
   main.rs         — CLI entry point (clap derive) + orchestration
   config.rs       — Config/Step/Action types + parse_config() + step index + validation
   executor.rs     — Runner with execute dispatch, dry-run audit, retry tracking
+  inspect.rs      — --list and --describe display logic
   path.rs         — tilde expansion helper
   style.rs        — aml wrapper for colored output
 ```
