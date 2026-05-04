@@ -100,6 +100,8 @@ rig <config-file> --only <id>    # Run a single step by ID
 rig <config-file> --validate     # Parse and validate without executing
 ```
 
+`<config-file>` can be a local path or a URL (`http://` / `https://`).
+
 ## Dry-Run Audit
 
 `--dry-run` shows a complete audit of the config including:

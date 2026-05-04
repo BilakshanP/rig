@@ -18,6 +18,12 @@ rig setup.json --only <id>  # Run a single step by ID
 rig setup.json --verbose    # Show suppressed output
 ```
 
+Configs can also be loaded from URLs:
+
+```bash
+rig https://example.com/setup.jsonc --set project=my-app
+```
+
 ## Config Format
 
 Configs are JSON or JSONC (comments supported). A config has a name, version, optional top-level meta, and a list of steps:
