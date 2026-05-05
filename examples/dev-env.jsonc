@@ -1,4 +1,6 @@
 {
+    "$schema": "../schema.json",
+
     // -- Top-level config --
     "name": "My Dev Environment",
     "version": "1.0.0",
