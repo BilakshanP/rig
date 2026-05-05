@@ -123,7 +123,7 @@ fn main() -> ExitCode {
     let Some(raw_config) = cli.config else {
         eprintln!(
             "{}",
-            style::render("<fr>error:</f> no config/bundle given; pass a path or use a subcommand (pack/unpack/info)")
+            style::render("<s fR mb>error:</s> no config/bundle given\n\nFor more information, try '<mb>--help</m>'.")
         );
         return ExitCode::FAILURE;
     };
