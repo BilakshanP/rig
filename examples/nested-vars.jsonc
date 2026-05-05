@@ -1,0 +1,55 @@
+// Demonstrates nested variable access via dot notation.
+//
+// Usage:
+//   rig examples/nested-vars.jsonc
+//   rig examples/nested-vars.jsonc --set db.host=prod-db.example.com
+{
+    "$schema": "../schema.json",
+    "name": "nested-vars-demo",
+    "version": "1.0.0",
+    "meta": {
+        "vars": {
+            "app": {
+                "name": "my-service",
+                "version": "2.1.0"
+            },
+            "db": {
+                "host": "localhost",
+                "port": "5432",
+                "creds": {
+                    "user": "admin",
+                    "pass": "secret"
+                }
+            },
+            "deploy": {
+                "target": "staging",
+                "replicas": "3"
+            }
+        }
+    },
+    "steps": [
+        {
+            "name": "Show app info",
+            "action": {
+                "kind": "io",
+                "level": "info",
+                "message": "{{app.name}} v{{app.version}}"
+            }
+        },
+        {
+            "name": "Show DB connection",
+            "action": {
+                "kind": "shell",
+                "commands": ["echo 'Connecting to {{db.host}}:{{db.port}} as {{db.creds.user}}'"]
+            }
+        },
+        {
+            "name": "Show deploy config",
+            "action": {
+                "kind": "io",
+                "level": "info",
+                "message": "Deploying to {{deploy.target}} with {{deploy.replicas}} replicas"
+            }
+        }
+    ]
+}
