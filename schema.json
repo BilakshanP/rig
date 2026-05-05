@@ -169,7 +169,8 @@
                 { "$ref": "#/definitions/action_fs_move" },
                 { "$ref": "#/definitions/action_fs_delete" },
                 { "$ref": "#/definitions/action_io" },
-                { "$ref": "#/definitions/action_var" }
+                { "$ref": "#/definitions/action_var" },
+                { "$ref": "#/definitions/action_cond" }
             ]
         },
         "action_shell": {
@@ -341,6 +342,39 @@
                 { "required": ["file"] },
                 { "required": ["from"] },
                 { "required": ["to"] }
+            ]
+        },
+        "action_cond": {
+            "properties": {
+                "kind": { "const": "cond" },
+                "cmp": { "type": "string", "description": "Value to compare (substituted at runtime, e.g. {{@var}})" },
+                "when": {
+                    "type": "object",
+                    "description": "Map of string keys to step ref(s). The key matching `cmp` after substitution is executed.",
+                    "additionalProperties": { "$ref": "#/definitions/step_ref_or_array" }
+                },
+                "default": {
+                    "$ref": "#/definitions/step_ref_or_array",
+                    "description": "Step ref(s) to run when no `when` key matches (optional)"
+                }
+            },
+            "required": ["kind", "cmp", "when"],
+            "additionalProperties": false
+        },
+        "step_ref_or_array": {
+            "description": "A single step reference (ID string or inline step) or an array of them",
+            "oneOf": [
+                { "type": "string" },
+                { "$ref": "#/definitions/step" },
+                {
+                    "type": "array",
+                    "items": {
+                        "oneOf": [
+                            { "type": "string" },
+                            { "$ref": "#/definitions/step" }
+                        ]
+                    }
+                }
             ]
         },
         "path_spec": {
