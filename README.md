@@ -326,6 +326,8 @@ Rig has a layered variable system with scopes and mutability. Variables use `{{n
 "{{#now}}"               // Current time, evaluated each use
 "{{#now:%H:%M:%S}}"      // Custom strftime at each use
 "{{#pwd}}"               // Current working directory at startup
+"{{#os}}"                // Operating system: linux, macos, windows
+"{{#arch}}"              // CPU architecture: x86_64, aarch64, etc.
 "{{#bundle}}"            // Absolute path to the bundle staging root (bundle runs only)
 ```
 

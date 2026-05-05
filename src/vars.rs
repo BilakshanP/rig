@@ -180,6 +180,8 @@ impl Scope {
             }
             "pwd" => self.startup_pwd.clone(),
             "bundle" => self.bundle_root.clone(),
+            "os" => Some(std::env::consts::OS.to_string()),
+            "arch" => Some(std::env::consts::ARCH.to_string()),
             _ => None,
         }
     }

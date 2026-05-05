@@ -75,7 +75,7 @@ tests/
 
 ## Variable System
 
-- `#NAME` — built-in: `#timestamp` (startup), `#now` (eval-time), `#pwd` (startup)
+- `#NAME` — built-in: `#timestamp` (startup), `#now` (eval-time), `#pwd` (startup), `#os` (linux/macos/windows), `#arch` (x86_64/aarch64/etc.)
 - `@NAME` — runtime-mutable, not CLI-settable
 - `@name` — runtime-mutable AND CLI-settable via `--set`
 - `NAME`  — immutable constant from `meta.vars`

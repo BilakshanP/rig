@@ -10,8 +10,8 @@
 //   # Run from a local directory (no packing needed):
 //   rig ./my-setup-dir --set name=project
 //
-// This example also shows how `var` + `cond` can detect the OS
-// and branch accordingly.
+// This example also shows how `cond` can use the built-in {{#os}}
+// variable to branch by platform — no shell commands needed.
 {
   "$schema": "../schema.json",
   "name": "cross-platform-setup",
@@ -20,25 +20,16 @@
     "vars": { "name": "my-project" }
   },
   "steps": [
-    // Detect the OS at runtime
-    {
-      "name": "Detect OS",
-      "action": {
-        "kind": "var",
-        "name": "@os",
-        "command": "uname -s | tr '[:upper:]' '[:lower:]'"
-      }
-    },
-
-    // Branch on OS
+    // Branch on OS using the built-in {{#os}} variable
     {
       "name": "OS-specific setup",
       "action": {
         "kind": "cond",
-        "cmp": "{{@os}}",
+        "cmp": "{{#os}}",
         "when": {
           "linux": "setup-linux",
-          "darwin": "setup-macos"
+          "macos": "setup-macos",
+          "windows": "setup-windows"
         },
         "default": "unsupported-os"
       }
@@ -71,12 +62,24 @@
       "meta": { "optional": true }
     },
     {
+      "id": "setup-windows",
+      "name": "Windows setup",
+      "action": {
+        "kind": "shell",
+        "commands": [
+          "echo Installing {{name}} dependencies on Windows...",
+          "echo Done (would run: winget install GnuWin32.Make)"
+        ]
+      },
+      "meta": { "optional": true }
+    },
+    {
       "id": "unsupported-os",
       "name": "Unsupported OS",
       "action": {
         "kind": "io",
         "level": "error",
-        "message": "Unsupported OS: {{@os}}. Only linux and darwin are supported."
+        "message": "Unsupported OS: {{#os}}. Only linux, macos, and windows are supported."
       },
       "meta": { "optional": true, "fallible": true }
     },

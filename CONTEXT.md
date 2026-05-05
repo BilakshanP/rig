@@ -74,7 +74,7 @@ Actions are nested objects with a `kind` discriminator. Steps can have an `id` f
 - **`var` action** — set a mutable `@var` from `command` (shell output), `from` (step stdout), `to` (feed variable to step stdin), or `file` (read file contents).
 - **`cond` action** — string-based conditional dispatch: `cmp` is substituted at runtime, matched against `when` keys to run step ref(s); `default` is the fallback. Pairs with `io` read-mode for user-input branching.
 - **Variable system** — 5 categories by prefix/case:
-  - `#NAME` (built-in: `#timestamp`, `#now`, `#pwd`, `#bundle` (bundle runs only))
+  - `#NAME` (built-in: `#timestamp`, `#now`, `#pwd`, `#os`, `#arch`, `#bundle` (bundle runs only))
   - `@NAME` (mutable, runtime-only)
   - `@name` (mutable, CLI-settable)
   - `NAME` (constant from `meta.vars`)
