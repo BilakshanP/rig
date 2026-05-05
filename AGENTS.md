@@ -6,7 +6,7 @@ Read `CONTEXT.md` first for full project context.
 
 - Fully implemented with `.rig` bundle format, manifest+templates, `expand` flag on fs actions, and bundle-aware `fs.copy` content rendering
 - Git repo URLs and local directories as input (shallow-clone + manifest lookup)
-- 150 tests passing (134 unit + 16 integration), clippy clean
+- 151 tests passing (135 unit + 16 integration), clippy clean
 - JSONC support via `json_comments` crate
 - Bundle I/O via `tar` + `flate2` + `tempfile` + `globset`
 
@@ -53,6 +53,7 @@ tests/
   - `Fs { op: FsOp, if_exists?, if_not_exists? }`
   - `Io { op: IoOp }` (`IoOp::Write { level, message, markup }` or `IoOp::Read { read, prompt?, default?, secret }`)
   - `Var { name, source: VarSource }`
+  - `Cond { cmp: String, when: HashMap<String, Vec<StepRef>>, default?: Vec<StepRef> }`
 - `VarSource` — `Command { command }`, `From { from: StepRef }`, `To { to: StepRef }`, `File { file: String }`
 - `FsOp` — enum; every variant carries `expand: ExpandFlags`:
   - `Create { path: Vec<String>, recurse, content?, expand }` (append supported with content)

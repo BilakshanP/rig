@@ -182,6 +182,27 @@ Read-mode io prompts for input and stores it in a runtime-mutable `@var`:
 - `secret: true` masks each keystroke with `*` as you type, and shows the captured value as `****` afterward
 - In `--dry-run` the `default` is used if set; otherwise the var is left unset
 
+### cond
+
+String-based conditional dispatch. Compares a substituted value against keys and runs the matching step(s):
+
+```jsonc
+{
+  "kind": "cond",
+  "cmp": "{{@env}}",
+  "when": {
+    "dev": "dev-setup",
+    "prod": ["prod-deploy", "notify-team"]
+  },
+  "default": "fallback-step"
+}
+```
+
+- `cmp` is substituted at runtime, then matched against `when` keys
+- `when` values can be a single step ref (ID or inline) or an array
+- `default` runs when no key matches (optional — if absent and no match, nothing happens)
+- Pairs naturally with `io` read-mode to branch on user input
+
 ## Step Features
 
 ### Handlers: on-success, on-failure, on-return

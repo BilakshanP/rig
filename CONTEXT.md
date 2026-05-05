@@ -13,6 +13,7 @@ A Rust CLI tool called `rig` that reads a JSON/JSONC config and executes setup s
 | `fs`    | File operations: create, symlink, copy, move, delete |
 | `io`    | Structured logging (write) or prompt-and-read from stdin into a `@var` |
 | `var`   | Set a runtime-mutable `@var` from a step's stdout or a shell command |
+| `cond`  | String-based conditional dispatch: compare a value against keys, run matching step(s) |
 
 ## Config Structure
 
@@ -71,6 +72,7 @@ Actions are nested objects with a `kind` discriminator. Steps can have an `id` f
 - **Top-level `meta`** — global defaults for `retries`, `retry-delay`, `silent`, `sudo`, and `log` (run transcript path).
 - **`io` action** — write: `level`/`message`/`markup`; read: `read`/`prompt?`/`default?`/`secret?` (stores line from stdin into an `@var`).
 - **`var` action** — set a mutable `@var` from `command` (shell output), `from` (step stdout), `to` (feed variable to step stdin), or `file` (read file contents).
+- **`cond` action** — string-based conditional dispatch: `cmp` is substituted at runtime, matched against `when` keys to run step ref(s); `default` is the fallback. Pairs with `io` read-mode for user-input branching.
 - **Variable system** — 5 categories by prefix/case:
   - `#NAME` (built-in: `#timestamp`, `#now`, `#pwd`, `#bundle` (bundle runs only))
   - `@NAME` (mutable, runtime-only)
