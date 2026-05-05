@@ -122,6 +122,22 @@
                 }
             ]
         },
+        "step_ref_or_array": {
+            "description": "A single step reference (ID string or inline step) or an array of them",
+            "oneOf": [
+                { "type": "string" },
+                { "$ref": "#/definitions/step" },
+                {
+                    "type": "array",
+                    "items": {
+                        "oneOf": [
+                            { "type": "string" },
+                            { "$ref": "#/definitions/step" }
+                        ]
+                    }
+                }
+            ]
+        },
         "meta": {
             "type": "object",
             "properties": {
@@ -168,18 +184,25 @@
                 { "$ref": "#/definitions/action_fs_copy" },
                 { "$ref": "#/definitions/action_fs_move" },
                 { "$ref": "#/definitions/action_fs_delete" },
-                { "$ref": "#/definitions/action_io" },
-                { "$ref": "#/definitions/action_var" },
+                { "$ref": "#/definitions/action_io_write" },
+                { "$ref": "#/definitions/action_io_read" },
+                { "$ref": "#/definitions/action_var_command" },
+                { "$ref": "#/definitions/action_var_file" },
+                { "$ref": "#/definitions/action_var_from" },
+                { "$ref": "#/definitions/action_var_to" },
                 { "$ref": "#/definitions/action_cond" }
             ]
         },
         "action_shell": {
+            "additionalProperties": false,
             "properties": {
                 "kind": { "const": "shell" },
                 "commands": {
-                    "type": "array",
-                    "items": { "type": "string" },
-                    "description": "Commands run via sh -c"
+                    "oneOf": [
+                        { "type": "string" },
+                        { "type": "array", "items": { "type": "string" } }
+                    ],
+                    "description": "Commands run via sh -c (single string or array)"
                 },
                 "dir": {
                     "type": "string",
@@ -194,6 +217,7 @@
             "required": ["kind", "commands"]
         },
         "action_git": {
+            "additionalProperties": false,
             "properties": {
                 "kind": { "const": "git" },
                 "repo": {
@@ -214,6 +238,7 @@
             "required": ["kind", "repo", "dest"]
         },
         "action_fs_create": {
+            "additionalProperties": false,
             "properties": {
                 "kind": { "const": "fs" },
                 "create": {
@@ -235,6 +260,7 @@
             "required": ["kind", "create"]
         },
         "action_fs_symlink": {
+            "additionalProperties": false,
             "properties": {
                 "kind": { "const": "fs" },
                 "symlink": {
@@ -251,6 +277,7 @@
             "required": ["kind", "symlink"]
         },
         "action_fs_copy": {
+            "additionalProperties": false,
             "properties": {
                 "kind": { "const": "fs" },
                 "copy": {
@@ -268,6 +295,7 @@
             "required": ["kind", "copy"]
         },
         "action_fs_move": {
+            "additionalProperties": false,
             "properties": {
                 "kind": { "const": "fs" },
                 "move": {
@@ -285,6 +313,7 @@
             "required": ["kind", "move"]
         },
         "action_fs_delete": {
+            "additionalProperties": false,
             "properties": {
                 "kind": { "const": "fs" },
                 "delete": {
@@ -300,35 +329,64 @@
             },
             "required": ["kind", "delete"]
         },
-        "action_io": {
+        "action_io_write": {
+            "additionalProperties": false,
             "properties": {
                 "kind": { "const": "io" },
                 "level": { "type": "string", "enum": ["log", "info", "warn", "error"], "description": "Message severity level" },
                 "message": { "type": "string", "description": "Message text" },
-                "markup": { "type": "boolean", "default": false, "description": "Parse message as aml markup" },
+                "markup": { "type": "boolean", "default": false, "description": "Parse message as aml markup" }
+            },
+            "required": ["kind", "level", "message"]
+        },
+        "action_io_read": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": { "const": "io" },
                 "read": { "type": "string", "description": "Target @var to store the line read from stdin" },
                 "prompt": { "type": "string", "description": "Prompt text shown before reading" },
                 "default": { "type": "string", "description": "Value used when the user enters an empty line" },
                 "secret": { "type": "boolean", "default": false, "description": "Mask input with * per keystroke; display captured value as ****" }
             },
-            "required": ["kind"],
-            "oneOf": [
-                { "required": ["level", "message"] },
-                { "required": ["read"] }
-            ]
+            "required": ["kind", "read"]
         },
-        "action_var": {
+        "action_var_command": {
+            "additionalProperties": false,
             "properties": {
                 "kind": { "const": "var" },
                 "name": { "type": "string", "description": "Variable name (must start with @ for runtime mutability)" },
-                "command": { "type": "string", "description": "Shell command; captures stdout into the variable" },
-                "file": { "type": "string", "description": "Read this file's contents into the variable (~ expanded)" },
+                "command": { "type": "string", "description": "Shell command; captures stdout into the variable" }
+            },
+            "required": ["kind", "name", "command"]
+        },
+        "action_var_file": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": { "const": "var" },
+                "name": { "type": "string", "description": "Variable name (must start with @ for runtime mutability)" },
+                "file": { "type": "string", "description": "Read this file's contents into the variable (~ expanded)" }
+            },
+            "required": ["kind", "name", "file"]
+        },
+        "action_var_from": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": { "const": "var" },
+                "name": { "type": "string", "description": "Variable name (must start with @ for runtime mutability)" },
                 "from": {
                     "oneOf": [
                         { "type": "string", "description": "Step ID whose stdout to capture" },
                         { "$ref": "#/definitions/step" }
                     ]
-                },
+                }
+            },
+            "required": ["kind", "name", "from"]
+        },
+        "action_var_to": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": { "const": "var" },
+                "name": { "type": "string", "description": "Variable name (must start with @ for runtime mutability)" },
                 "to": {
                     "oneOf": [
                         { "type": "string", "description": "Step ID to feed stdin to" },
@@ -336,15 +394,10 @@
                     ]
                 }
             },
-            "required": ["kind", "name"],
-            "oneOf": [
-                { "required": ["command"] },
-                { "required": ["file"] },
-                { "required": ["from"] },
-                { "required": ["to"] }
-            ]
+            "required": ["kind", "name", "to"]
         },
         "action_cond": {
+            "additionalProperties": false,
             "properties": {
                 "kind": { "const": "cond" },
                 "cmp": { "type": "string", "description": "Value to compare (substituted at runtime, e.g. {{@var}})" },
@@ -358,24 +411,7 @@
                     "description": "Step ref(s) to run when no `when` key matches (optional)"
                 }
             },
-            "required": ["kind", "cmp", "when"],
-            "additionalProperties": false
-        },
-        "step_ref_or_array": {
-            "description": "A single step reference (ID string or inline step) or an array of them",
-            "oneOf": [
-                { "type": "string" },
-                { "$ref": "#/definitions/step" },
-                {
-                    "type": "array",
-                    "items": {
-                        "oneOf": [
-                            { "type": "string" },
-                            { "$ref": "#/definitions/step" }
-                        ]
-                    }
-                }
-            ]
+            "required": ["kind", "cmp", "when"]
         },
         "path_spec": {
             "oneOf": [
@@ -385,17 +421,17 @@
             "description": "Path or array of paths. Trailing / = directory."
         },
         "expand": {
-            "description": "Control {{var}} substitution on path components and file contents for this fs action. Defaults to false (no substitution) to preserve byte-exact behavior outside bundles. Shorthand `true` enables all fields; `false` disables all.",
+            "description": "Control {{var}} substitution per-field. Default renders paths but leaves contents byte-exact. Shorthand `true` enables all; `false` disables all.",
             "oneOf": [
                 { "type": "boolean" },
                 {
                     "type": "object",
                     "additionalProperties": false,
                     "properties": {
-                        "from":     { "type": "boolean", "default": false, "description": "Substitute {{...}} in the `from` path (copy/symlink/move)" },
-                        "to":       { "type": "boolean", "default": false, "description": "Substitute {{...}} in the `to` path (copy/symlink/move/create)" },
-                        "path":     { "type": "boolean", "default": false, "description": "Substitute {{...}} in the `path` field (create/delete)" },
-                        "contents": { "type": "boolean", "default": false, "description": "Substitute {{...}} in file contents during fs.copy (only meaningful when running from a bundle)" }
+                        "from":     { "type": "boolean", "default": true, "description": "Substitute {{...}} in the `from` path" },
+                        "to":       { "type": "boolean", "default": true, "description": "Substitute {{...}} in the `to` path" },
+                        "path":     { "type": "boolean", "default": true, "description": "Substitute {{...}} in the `path` field" },
+                        "contents": { "type": "boolean", "default": false, "description": "Substitute {{...}} in file contents (bundle fs.copy)" }
                     }
                 }
             ]
@@ -409,6 +445,7 @@
                 {
                     "type": "object",
                     "required": ["execute"],
+                    "additionalProperties": false,
                     "properties": {
                         "execute": {
                             "oneOf": [
