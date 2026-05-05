@@ -1,0 +1,1 @@
+{ "name": "macos-setup", "version": "1.0.0", "meta": { "vars": { "name": "app" } }, "steps": [{ "name": "macOS", "action": { "kind": "shell", "commands": ["echo '[macos] setting up {{name}}'"] } }] }

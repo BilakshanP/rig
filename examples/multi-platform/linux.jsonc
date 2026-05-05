@@ -1,0 +1,1 @@
+{ "name": "linux-setup", "version": "1.0.0", "meta": { "vars": { "name": "app" } }, "steps": [{ "name": "Linux", "action": { "kind": "shell", "commands": ["echo '[linux] setting up {{name}}'"] } }] }

@@ -1857,4 +1857,30 @@ mod tests {
         let result = r.run_step(&step, 0);
         assert!(result.is_err());
     }
+
+    #[test]
+    fn rig_action_runs_sub_config() {
+        let td = tempfile::tempdir().unwrap();
+        let sub_path = td.path().join("sub.json");
+        std::fs::write(&sub_path, r#"{"name":"sub","version":"1.0.0","meta":{"vars":{"msg":"default"}},"steps":[{"name":"echo","action":{"kind":"shell","commands":["echo {{msg}}"]}}]}"#).unwrap();
+
+        let step = Step {
+            id: None,
+            name: "run-sub".into(),
+            description: None,
+            action: Action::Rig {
+                file: sub_path.to_str().unwrap().to_string(),
+                set: Some([("msg".to_string(), "hello".to_string())].into_iter().collect()),
+            },
+            on_success: None,
+            on_failure: None,
+            on_return: None,
+            then: vec![],
+            meta: StepMeta::default(),
+        };
+        let index = HashMap::new();
+        let r = Runner::new(index, false, false, Meta::default(), crate::vars::Scope::default());
+        let result = r.run_step(&step, 0);
+        assert!(result.is_ok());
+    }
 }
