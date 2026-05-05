@@ -583,8 +583,20 @@ pub fn looks_like_bundle(path: &Path) -> bool {
 }
 
 /// Returns `true` if `input` looks like a git repo URL (github/gitlab/etc.)
-/// rather than a raw JSON/rig file URL.
+/// rather than a raw JSON/rig file URL. Supports HTTPS and SSH formats:
+/// - `https://github.com/user/repo`
+/// - `ssh://git@github.com/user/repo`
+/// - `git@github.com:user/repo.git`
 pub fn looks_like_git_repo(input: &str) -> bool {
+    // SSH SCP-style: git@host:owner/repo or git@host:owner/repo.git
+    if input.starts_with("git@") && input.contains(':') {
+        return true;
+    }
+    // ssh:// scheme
+    if input.starts_with("ssh://") {
+        return true;
+    }
+
     if !input.starts_with("http://") && !input.starts_with("https://") {
         return false;
     }
@@ -1214,6 +1226,13 @@ mod tests {
     fn looks_like_git_repo_dot_git_suffix() {
         assert!(looks_like_git_repo("https://example.com/foo/bar.git"));
         assert!(looks_like_git_repo("https://self-hosted.dev/team/project.git"));
+    }
+
+    #[test]
+    fn looks_like_git_repo_ssh() {
+        assert!(looks_like_git_repo("git@github.com:user/repo.git"));
+        assert!(looks_like_git_repo("git@gitlab.com:org/project"));
+        assert!(looks_like_git_repo("ssh://git@github.com/user/repo"));
     }
 
     #[test]

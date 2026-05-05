@@ -149,7 +149,8 @@ fn main() -> ExitCode {
     let config_path: String;
 
     let is_url = raw_config.starts_with("http://") || raw_config.starts_with("https://");
-    let is_local_dir = !is_url && std::path::Path::new(&raw_config).is_dir();
+    let is_git_ssh = raw_config.starts_with("git@") || raw_config.starts_with("ssh://");
+    let is_local_dir = !is_url && !is_git_ssh && std::path::Path::new(&raw_config).is_dir();
 
     if is_local_dir {
         // Local directory → look for manifest and treat as bundle source.
@@ -168,7 +169,7 @@ fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             }
         }
-    } else if is_url && bundle::looks_like_git_repo(&raw_config) {
+    } else if is_git_ssh || (is_url && bundle::looks_like_git_repo(&raw_config)) {
         // Git repo URL → clone and treat as bundle source.
         match bundle::open_git_repo(&raw_config, &vars, effective_placeholder) {
             Ok((_cfg, ctx)) => {
