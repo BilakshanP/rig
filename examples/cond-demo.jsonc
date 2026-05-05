@@ -1,0 +1,118 @@
+// Demonstrates the `cond` action kind paired with `io` read-mode
+// for interactive user-input branching.
+//
+// Usage:
+//   rig examples/cond-demo.jsonc
+//   rig examples/cond-demo.jsonc --set env=prod   # skip the prompt
+{
+  "$schema": "../schema.json",
+  "name": "cond-demo",
+  "version": "1.0.0",
+  "meta": {
+    "vars": { "project": "my-app" }
+  },
+  "steps": [
+    // Prompt the user for an environment choice
+    {
+      "name": "Ask environment",
+      "action": {
+        "kind": "io",
+        "read": "@env",
+        "prompt": "Deploy to (dev/staging/prod): ",
+        "default": "dev"
+      }
+    },
+
+    // Branch based on the answer
+    {
+      "name": "Route by environment",
+      "action": {
+        "kind": "cond",
+        "cmp": "{{@env}}",
+        "when": {
+          "dev": "setup-dev",
+          "staging": "setup-staging",
+          "prod": ["confirm-prod", "setup-prod"]
+        },
+        "default": "unknown-env"
+      }
+    },
+
+    // --- Target steps (optional — only run when referenced) ---
+
+    {
+      "id": "setup-dev",
+      "name": "Dev setup",
+      "action": {
+        "kind": "io",
+        "level": "info",
+        "message": "Setting up {{project}} for local development..."
+      },
+      "meta": { "optional": true }
+    },
+    {
+      "id": "setup-staging",
+      "name": "Staging setup",
+      "action": {
+        "kind": "io",
+        "level": "info",
+        "message": "Deploying {{project}} to staging..."
+      },
+      "meta": { "optional": true }
+    },
+    {
+      "id": "confirm-prod",
+      "name": "Confirm production deploy",
+      "action": {
+        "kind": "io",
+        "read": "@confirm",
+        "prompt": "Are you sure? (yes/no): ",
+        "default": "no"
+      },
+      "meta": { "optional": true }
+    },
+    {
+      "id": "setup-prod",
+      "name": "Production deploy",
+      "action": {
+        "kind": "cond",
+        "cmp": "{{@confirm}}",
+        "when": {
+          "yes": "do-prod-deploy"
+        },
+        "default": "abort-deploy"
+      },
+      "meta": { "optional": true }
+    },
+    {
+      "id": "do-prod-deploy",
+      "name": "Deploy to production",
+      "action": {
+        "kind": "io",
+        "level": "info",
+        "message": "Deploying {{project}} to production!"
+      },
+      "meta": { "optional": true }
+    },
+    {
+      "id": "abort-deploy",
+      "name": "Abort",
+      "action": {
+        "kind": "io",
+        "level": "warn",
+        "message": "Production deploy aborted."
+      },
+      "meta": { "optional": true }
+    },
+    {
+      "id": "unknown-env",
+      "name": "Unknown environment",
+      "action": {
+        "kind": "io",
+        "level": "error",
+        "message": "Unknown environment '{{@env}}'. Use dev, staging, or prod."
+      },
+      "meta": { "optional": true }
+    }
+  ]
+}

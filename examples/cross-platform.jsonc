@@ -1,0 +1,102 @@
+// Demonstrates using rig with git repos and directories as input.
+//
+// This config itself is a normal setup file, but the comments show
+// how the same workflow can be triggered from a git repo:
+//
+//   # Run from a git repo (clones + finds manifest.json[c]):
+//   rig https://github.com/user/my-setup --set name=project
+//   rig git@github.com:user/my-setup.git --set name=project
+//
+//   # Run from a local directory (no packing needed):
+//   rig ./my-setup-dir --set name=project
+//
+// This example also shows how `var` + `cond` can detect the OS
+// and branch accordingly.
+{
+  "$schema": "../schema.json",
+  "name": "cross-platform-setup",
+  "version": "1.0.0",
+  "meta": {
+    "vars": { "name": "my-project" }
+  },
+  "steps": [
+    // Detect the OS at runtime
+    {
+      "name": "Detect OS",
+      "action": {
+        "kind": "var",
+        "name": "@os",
+        "command": "uname -s | tr '[:upper:]' '[:lower:]'"
+      }
+    },
+
+    // Branch on OS
+    {
+      "name": "OS-specific setup",
+      "action": {
+        "kind": "cond",
+        "cmp": "{{@os}}",
+        "when": {
+          "linux": "setup-linux",
+          "darwin": "setup-macos"
+        },
+        "default": "unsupported-os"
+      }
+    },
+
+    // --- OS-specific steps ---
+
+    {
+      "id": "setup-linux",
+      "name": "Linux setup",
+      "action": {
+        "kind": "shell",
+        "commands": [
+          "echo 'Installing {{name}} dependencies on Linux...'",
+          "echo 'Done (would run: sudo apt install -y build-essential)'"
+        ]
+      },
+      "meta": { "optional": true }
+    },
+    {
+      "id": "setup-macos",
+      "name": "macOS setup",
+      "action": {
+        "kind": "shell",
+        "commands": [
+          "echo 'Installing {{name}} dependencies on macOS...'",
+          "echo 'Done (would run: brew install gcc)'"
+        ]
+      },
+      "meta": { "optional": true }
+    },
+    {
+      "id": "unsupported-os",
+      "name": "Unsupported OS",
+      "action": {
+        "kind": "io",
+        "level": "error",
+        "message": "Unsupported OS: {{@os}}. Only linux and darwin are supported."
+      },
+      "meta": { "optional": true, "fallible": true }
+    },
+
+    // Common steps that run after OS-specific setup
+    {
+      "name": "Create project structure",
+      "action": {
+        "kind": "fs",
+        "create": { "path": ["~/projects/{{name}}/", "~/projects/{{name}}/src/"], "recurse": true }
+      },
+      "if-exists": "skip"
+    },
+    {
+      "name": "Done",
+      "action": {
+        "kind": "io",
+        "level": "info",
+        "message": "{{name}} is ready at ~/projects/{{name}}"
+      }
+    }
+  ]
+}
