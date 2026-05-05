@@ -279,6 +279,7 @@ impl Runner {
             Action::Io { op } => { self.exec_io(op, meta, indent)?; Ok(0) }
             Action::Var { name, source } => { self.exec_var(name, source, meta, indent)?; Ok(0) }
             Action::Cond { cmp, when, default } => { self.exec_cond(cmp, when, default.as_deref(), indent, _depth)?; Ok(0) }
+            Action::Rig { file, set } => { self.exec_rig(file, set.as_ref(), indent, _depth)?; Ok(0) }
         }
     }
 
@@ -438,6 +439,45 @@ impl Runner {
             self.run_step_refs(refs, depth + 1)?;
         } else if let Some(refs) = default {
             self.run_step_refs(refs, depth + 1)?;
+        }
+        Ok(())
+    }
+
+    fn exec_rig(
+        &self,
+        file: &str,
+        set: Option<&HashMap<String, String>>,
+        indent: &str,
+        depth: usize,
+    ) -> Result<(), ExecError> {
+        let file = self.subst(file);
+        // Build cli_vars: parent scope values + set overrides (substituted)
+        let mut cli_vars: HashMap<String, String> = self.scope.borrow().all_values();
+        if let Some(s) = set {
+            for (k, v) in s { cli_vars.insert(k.clone(), self.subst(v)); }
+        }
+
+        if self.dry_run {
+            println!("{indent}  [dry-run] rig {file:?}");
+            if let Some(s) = set {
+                for (k, v) in s { println!("{indent}    set {k} = {v}"); }
+            }
+            return Ok(());
+        }
+
+        // Parse the sub-config
+        let cfg = crate::config::parse_config(&file, &cli_vars, false)
+            .map_err(|e| ExecError::Command(format!("rig sub-config error: {e}")))?;
+
+        // Build scope for sub-config
+        let sub_scope = crate::config::build_scope(&cfg, &cli_vars);
+        let sub_index = crate::config::build_step_index(&cfg);
+        let sub_runner = Runner::new(sub_index, self.dry_run, self.verbose, cfg.meta.clone(), sub_scope);
+
+        println!("{indent}  {}", style::render(&format!("<fc>rig:</f> <mb>{}</m>", cfg.name)));
+        for step in &cfg.steps {
+            if step.meta.optional { continue; }
+            sub_runner.run_step(step, depth + 1)?;
         }
         Ok(())
     }
@@ -1048,6 +1088,12 @@ impl Runner {
                 }
                 if let Some(refs) = default {
                     println!("{ai}  {}", style::render(&format!("<fy>default</f> -> {}", step_refs_label(refs))));
+                }
+            }
+            Action::Rig { file, set } => {
+                println!("{ai}{}", style::render(&format!("<md>rig:</m> {file:?}")));
+                if let Some(s) = set {
+                    for (k, v) in s { println!("{ai}  {}", style::render(&format!("<md>set</m> {k} = {v:?}"))); }
                 }
             }
         }

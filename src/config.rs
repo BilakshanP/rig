@@ -203,6 +203,11 @@ pub enum Action {
         #[serde(default, deserialize_with = "de_opt_single_or_vec")]
         default: Option<Vec<StepRef>>,
     },
+    Rig {
+        file: String,
+        #[serde(default)]
+        set: Option<HashMap<String, String>>,
+    },
 }
 
 // -- Var --
@@ -653,6 +658,12 @@ fn collect_refs_in_action(action: &Action, refs: &mut Vec<crate::vars::VarRef>) 
         },
         Action::Cond { cmp, .. } => {
             refs.extend(crate::vars::scan_refs(cmp));
+        },
+        Action::Rig { file, set } => {
+            refs.extend(crate::vars::scan_refs(file));
+            if let Some(s) = set {
+                for v in s.values() { refs.extend(crate::vars::scan_refs(v)); }
+            }
         },
     }
 }

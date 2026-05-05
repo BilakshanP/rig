@@ -14,6 +14,7 @@ A Rust CLI tool called `rig` that reads a JSON/JSONC config and executes setup s
 | `io`    | Structured logging (write) or prompt-and-read from stdin into a `@var` |
 | `var`   | Set a runtime-mutable `@var` from a step's stdout or a shell command |
 | `cond`  | String-based conditional dispatch: compare a value against keys, run matching step(s) |
+| `rig`   | Execute another config as a sub-config with variable passing |
 
 ## Config Structure
 

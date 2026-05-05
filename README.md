@@ -205,6 +205,23 @@ String-based conditional dispatch. Compares a substituted value against keys and
 - `default` runs when no key matches (optional — if absent and no match, nothing happens)
 - Pairs naturally with `io` read-mode to branch on user input
 
+### rig
+
+Execute another config file as a sub-config. Parent variables flow down; `set` overrides specific values:
+
+```jsonc
+{
+  "kind": "rig",
+  "file": "./platform/linux.jsonc",
+  "set": { "name": "{{name}}", "env": "prod" }
+}
+```
+
+- `file` is substituted at runtime (supports `{{...}}` variables)
+- `set` passes/overrides variables into the sub-config's scope
+- Parent scope values are inherited unless overridden by `set`
+- Errors in the sub-config propagate normally (handlers, fallible, retries all work)
+
 ## Step Features
 
 ### Handlers: on-success, on-failure, on-return

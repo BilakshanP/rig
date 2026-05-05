@@ -192,7 +192,8 @@
                 { "$ref": "#/definitions/action_var_file" },
                 { "$ref": "#/definitions/action_var_from" },
                 { "$ref": "#/definitions/action_var_to" },
-                { "$ref": "#/definitions/action_cond" }
+                { "$ref": "#/definitions/action_cond" },
+                { "$ref": "#/definitions/action_rig" }
             ]
         },
         "action_shell": {
@@ -414,6 +415,19 @@
                 }
             },
             "required": ["kind", "cmp", "when"]
+        },
+        "action_rig": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": { "const": "rig" },
+                "file": { "type": "string", "description": "Path or URL to a sub-config (.json/.jsonc) to execute" },
+                "set": {
+                    "type": "object",
+                    "additionalProperties": { "type": "string" },
+                    "description": "Variables to pass to the sub-config (overrides parent scope)"
+                }
+            },
+            "required": ["kind", "file"]
         },
         "path_spec": {
             "oneOf": [

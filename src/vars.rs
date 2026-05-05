@@ -161,6 +161,11 @@ impl Scope {
         self.values.get(key).map(|s| s.as_str())
     }
 
+    /// Return all stored values (for passing to sub-configs).
+    pub fn all_values(&self) -> HashMap<String, String> {
+        self.values.clone()
+    }
+
     /// Resolve a parsed var reference to its string value.
     /// Returns None if undefined.
     pub fn resolve(&self, vr: &VarRef) -> Option<String> {

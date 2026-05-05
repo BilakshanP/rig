@@ -157,6 +157,12 @@ fn describe_inner(
                 println!("{ai}  {}", style::render(&format!("<fy>default</f> -> {}", step_refs_label(refs))));
             }
         }
+        Action::Rig { file, set } => {
+            println!("{ai}{}", style::render(&format!("<md>rig:</m> {file:?}")));
+            if let Some(s) = set {
+                for (k, v) in s { println!("{ai}  {}", style::render(&format!("<md>set</m> {k} = {v:?}"))); }
+            }
+        }
     }
 
     if let Some(refs) = &step.on_success { println!("{ai}{}", style::render(&format!("<md>on-success:</m> {}", step_refs_label(refs)))); }
