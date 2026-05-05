@@ -98,8 +98,13 @@ impl Runner {
     }
 
     pub fn run_steps(&self, steps: &[Step]) -> Result<(), ExecError> {
+        #[cfg(unix)]
         if !self.dry_run && (self.config_meta.sudo || steps.iter().any(|s| s.meta.sudo)) {
             self.preflight_sudo()?;
+        }
+        #[cfg(windows)]
+        if self.config_meta.sudo || steps.iter().any(|s| s.meta.sudo) {
+            println!("{}", style::render("<fy>warning:</f> sudo is not supported on Windows; ignoring sudo flag"));
         }
         for step in steps {
             if step.meta.optional { continue; }
@@ -108,6 +113,7 @@ impl Runner {
         Ok(())
     }
 
+    #[cfg(unix)]
     fn preflight_sudo(&self) -> Result<(), ExecError> {
         println!("{}", style::render("<fy>sudo required - validating credentials...</f>"));
         let status = Command::new("sudo").arg("-v").status()?;
@@ -218,6 +224,41 @@ impl Runner {
         self.scope.borrow().substitute(s)
     }
 
+    /// Resolve the effective ShellConfig: step-level overrides config-level, falls back to platform default.
+    fn resolve_shell(&self, meta: &StepMeta) -> crate::config::ShellConfig {
+        meta.shell.clone()
+            .or_else(|| self.config_meta.shell.clone())
+            .unwrap_or_default()
+    }
+
+    /// Build a Command for running a shell command string, respecting sudo and ShellConfig.
+    fn shell_command(&self, cmd: &str, meta: &StepMeta, sudo: bool) -> Command {
+        let shell = self.resolve_shell(meta);
+        let use_sudo = sudo && cfg!(unix);
+        if use_sudo {
+            let mut p = Command::new("sudo");
+            p.arg(&shell.cmd);
+            for a in &shell.args { p.arg(a); }
+            p.arg(cmd);
+            p
+        } else {
+            let mut p = Command::new(&shell.cmd);
+            for a in &shell.args { p.arg(a); }
+            p.arg(cmd);
+            p
+        }
+    }
+
+    /// Format the shell prefix for display (dry-run, inspect).
+    fn shell_prefix(&self, meta: &StepMeta, sudo: bool) -> String {
+        let shell = self.resolve_shell(meta);
+        let base = std::iter::once(shell.cmd.as_str())
+            .chain(shell.args.iter().map(|s| s.as_str()))
+            .collect::<Vec<_>>()
+            .join(" ");
+        if sudo { format!("sudo {base}") } else { base }
+    }
+
     /// Conditionally substitute: when `enabled` is true this is `subst`, else
     /// an owned copy of `s`. Used to honor per-field `expand` flags on fs
     /// actions.
@@ -283,21 +324,13 @@ impl Runner {
         for cmd in commands {
             let cmd = self.subst(cmd);
             if self.dry_run {
-                let prefix = if sudo { "sudo sh -c" } else { "sh -c" };
+                let prefix = self.shell_prefix(meta, sudo);
                 println!("{indent}  [dry-run] {prefix} {cmd:?}");
                 if let Some(d) = dir { println!("{indent}    dir: {}", self.subst(d)); }
                 if let Some(e) = env { println!("{indent}    env: {e:?}"); }
                 continue;
             }
-            let mut proc = if sudo {
-                let mut p = Command::new("sudo");
-                p.arg("sh").arg("-c").arg(&cmd);
-                p
-            } else {
-                let mut p = Command::new("sh");
-                p.arg("-c").arg(&cmd);
-                p
-            };
+            let mut proc = self.shell_command(&cmd, meta, sudo);
             if let Some(d) = dir { proc.current_dir(expand_tilde(&self.subst(d))); }
             if let Some(e) = env {
                 for (k, v) in e { proc.env(k, self.subst(v)); }
@@ -342,15 +375,7 @@ impl Runner {
             VarSource::Command { command } => {
                 let cmd = self.subst(command);
                 let sudo = meta.sudo || self.config_meta.sudo;
-                let mut proc = if sudo {
-                    let mut p = Command::new("sudo");
-                    p.arg("sh").arg("-c").arg(&cmd);
-                    p
-                } else {
-                    let mut p = Command::new("sh");
-                    p.arg("-c").arg(&cmd);
-                    p
-                };
+                let mut proc = self.shell_command(&cmd, meta, sudo);
                 let output = proc.output()?;
                 if !output.status.success() {
                     return Err(ExecError::Command(format!("var command failed: {cmd}")));
@@ -425,15 +450,7 @@ impl Runner {
                 let mut acc = String::new();
                 for cmd in commands {
                     let cmd = self.subst(cmd);
-                    let mut proc = if sudo {
-                        let mut p = Command::new("sudo");
-                        p.arg("sh").arg("-c").arg(&cmd);
-                        p
-                    } else {
-                        let mut p = Command::new("sh");
-                        p.arg("-c").arg(&cmd);
-                        p
-                    };
+                    let mut proc = self.shell_command(&cmd, &step.meta, sudo);
                     if let Some(d) = dir { proc.current_dir(crate::path::expand_tilde(&self.subst(d))); }
                     if let Some(e) = env {
                         for (k, v) in e { proc.env(k, self.subst(v)); }
@@ -459,15 +476,7 @@ impl Runner {
                     let cmd = self.subst(cmd);
                     use std::process::Stdio;
                     use std::io::Write;
-                    let mut proc = if sudo {
-                        let mut p = Command::new("sudo");
-                        p.arg("sh").arg("-c").arg(&cmd);
-                        p
-                    } else {
-                        let mut p = Command::new("sh");
-                        p.arg("-c").arg(&cmd);
-                        p
-                    };
+                    let mut proc = self.shell_command(&cmd, &step.meta, sudo);
                     if let Some(d) = dir { proc.current_dir(crate::path::expand_tilde(&self.subst(d))); }
                     if let Some(e) = env {
                         for (k, v) in e { proc.env(k, self.subst(v)); }
@@ -716,7 +725,26 @@ impl Runner {
                 CondResult::Panic => return Err(ExecError::Command(format!("already exists: {}", dst.display()))),
             }
         }
+        #[cfg(unix)]
         std::os::unix::fs::symlink(&src, &dst)?;
+        #[cfg(windows)]
+        {
+            let res = if src.is_dir() {
+                std::os::windows::fs::symlink_dir(&src, &dst)
+            } else {
+                std::os::windows::fs::symlink_file(&src, &dst)
+            };
+            res.map_err(|e| {
+                if e.raw_os_error() == Some(1314) {
+                    ExecError::Command(format!(
+                        "symlink failed: insufficient privileges. Run as Administrator or enable Developer Mode.\n  {} -> {}",
+                        src.display(), dst.display()
+                    ))
+                } else {
+                    ExecError::Io(e)
+                }
+            })?;
+        }
         println!("{indent}  {}", style::render(&format!("<fg>symlinked</f> {} -> {}", src.display(), dst.display())));
         Ok(())
     }
@@ -945,7 +973,8 @@ impl Runner {
         let ai = format!("{indent}    ");
         match &step.action {
             Action::Shell { commands, dir, env } => {
-                let prefix = if step.meta.sudo { "sudo sh -c" } else { "sh -c" };
+                let sudo = step.meta.sudo || self.config_meta.sudo;
+                let prefix = self.shell_prefix(&step.meta, sudo);
                 for cmd in commands { println!("{ai}{}", style::render(&format!("<md>{prefix}</m> {cmd:?}"))); }
                 if let Some(d) = dir { println!("{ai}{}", style::render(&format!("<md>dir:</m> {d}"))); }
                 if let Some(e) = env {

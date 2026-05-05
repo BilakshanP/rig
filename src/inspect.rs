@@ -77,7 +77,11 @@ fn describe_inner(
 
     match &step.action {
         Action::Shell { commands, dir, env } => {
-            let prefix = if step.meta.sudo { "sudo sh -c" } else { "sh -c" };
+            let shell = step.meta.shell.clone().unwrap_or_default();
+            let base = std::iter::once(shell.cmd.as_str())
+                .chain(shell.args.iter().map(|s| s.as_str()))
+                .collect::<Vec<_>>().join(" ");
+            let prefix = if step.meta.sudo { format!("sudo {base}") } else { base };
             for cmd in commands { println!("{ai}{}", style::render(&format!("<md>{prefix}</m> {cmd:?}"))); }
             if let Some(d) = dir { println!("{ai}{}", style::render(&format!("<md>dir:</m> {d}"))); }
             if let Some(e) = env {

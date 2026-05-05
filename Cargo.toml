@@ -16,6 +16,7 @@ tar = "0.4"
 flate2 = "1.0"
 tempfile = "3.15"
 globset = "0.4"
+dirs = "5"
 
 [dev-dependencies]
 strip-ansi-escapes = "0.2"

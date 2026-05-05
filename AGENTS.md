@@ -44,7 +44,7 @@ tests/
 ## Data Model
 
 - `Config` — `name`, `version`, optional `description`, `meta: Meta`, `bundle: Option<BundleMeta>`, `steps: Vec<Step>`
-- `Meta` — `log?`, `silent: Vec<Silent>`, `sudo`, `retries?`, `retry_delay?`, `vars: serde_json::Value` (nested)
+- `Meta` — `log?`, `silent: Vec<Silent>`, `sudo`, `retries?`, `retry_delay?`, `shell?: ShellConfig`, `vars: serde_json::Value` (nested)
 - `Step` — `id?`, `name`, `description?`, `action: Action`, `on_success?: Vec<StepRef>`, `on_failure?: Vec<StepRef>`, `on_return?: HashMap<String, Vec<StepRef>>`, `then: Vec<StepRef>`, `meta: StepMeta`
 - `StepRef` — `Id(String)` or `Inline(Box<Step>)`
 - `Action` — tagged enum on `kind`:
@@ -64,7 +64,7 @@ tests/
 - `ExpandFlags` — `{ from, to, path, contents }`; consts `ALL`, `NONE`, `PATHS` (default). Custom deserialize: `true`/`false` shorthand or object form with PATHS-defaulted missing fields.
 - `Condition` — `Action(skip/overwrite/append/panic)` or `Execute { execute: StepRef }`
 - `GitOnConflict` — `Skip` (default), `Pull`, `Fail`
-- `StepMeta` — `optional`, `fallible`, `sudo`, `silent: Vec<Silent>`, `retries?`, `retry_delay?`
+- `StepMeta` — `optional`, `fallible`, `sudo`, `silent: Vec<Silent>`, `retries?`, `retry_delay?`, `shell?: ShellConfig`
 - `BundleMeta` (in `bundle.rs`) — `extract_to: ExtractTo`, `cleanup: Cleanup`, `binary: Vec<String>` (globset patterns)
 - `ExtractTo` — `Named(Tmp | Cwd | Home)` or `Custom { path: String }`; default `Named(Tmp)`
 - `Cleanup` — `Always`, `OnSuccess` (default), `Never`
@@ -85,7 +85,7 @@ tests/
 
 ## Executor Rules
 
-- `shell`: run each command via `sh -c`, apply dir/env, return exit code
+- `shell`: run each command via configured shell (default `sh -c` / `cmd /C`), apply dir/env, return exit code
 - `git`: clone if missing; on-conflict controls skip/pull/fail
 - `fs`: dispatch to create/symlink/copy/move/delete with condition handling; create supports `content` for inline file writing
 - `io`: print message with level prefix; write to log file if configured

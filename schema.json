@@ -59,6 +59,7 @@
                 "sudo": { "type": "boolean", "default": false, "description": "Global default: run shell commands with sudo" },
                 "retries": { "type": "integer", "minimum": 0, "description": "Global default: auto-retry count on failure" },
                 "retry-delay": { "type": "number", "minimum": 0, "description": "Global default: seconds before each retry" },
+                "shell": { "$ref": "#/definitions/shell_config", "description": "Global default shell for command execution" },
                 "vars": {
                     "type": "object",
                     "description": "Variable defaults (may be nested; overridden by --set). Access via dot notation: {{super.mario.bros}}"
@@ -170,7 +171,8 @@
                     "type": "number",
                     "minimum": 0,
                     "description": "Seconds to wait before each retry"
-                }
+                },
+                "shell": { "$ref": "#/definitions/shell_config", "description": "Override shell for this step" }
             }
         },
         "action": {
@@ -453,6 +455,21 @@
                                 { "$ref": "#/definitions/step" }
                             ]
                         }
+                    }
+                }
+            ]
+        },
+        "shell_config": {
+            "description": "Shell configuration. String shorthand (sh, bash, zsh, cmd, powershell, pwsh) or object with cmd and args.",
+            "oneOf": [
+                { "type": "string", "description": "Shell shorthand: sh, bash, zsh, fish, cmd, powershell, pwsh" },
+                {
+                    "type": "object",
+                    "required": ["cmd", "args"],
+                    "additionalProperties": false,
+                    "properties": {
+                        "cmd": { "type": "string", "description": "Shell executable" },
+                        "args": { "type": "array", "items": { "type": "string" }, "description": "Arguments before the command string (e.g. [\"-c\"])" }
                     }
                 }
             ]

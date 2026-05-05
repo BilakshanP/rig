@@ -37,9 +37,66 @@ pub struct Meta {
     pub retries: Option<u32>,
     #[serde(default, rename = "retry-delay")]
     pub retry_delay: Option<f64>,
+    #[serde(default)]
+    pub shell: Option<ShellConfig>,
     /// Raw vars tree. May contain nested objects; flattened into dot-path keys at runtime.
     #[serde(default)]
     pub vars: serde_json::Value,
+}
+
+// -- Shell config --
+
+/// Configurable shell for command execution.
+/// String shorthand: `"sh"` means `{ cmd: "sh", args: ["-c"] }`.
+/// Object form: `{ "cmd": "powershell", "args": ["-Command"] }`.
+#[derive(Debug, Clone)]
+pub struct ShellConfig {
+    pub cmd: String,
+    pub args: Vec<String>,
+}
+
+impl ShellConfig {
+    /// Platform default: `sh -c` on Unix, `cmd /C` on Windows.
+    pub fn platform_default() -> Self {
+        if cfg!(windows) {
+            Self { cmd: "cmd".into(), args: vec!["/C".into()] }
+        } else {
+            Self { cmd: "sh".into(), args: vec!["-c".into()] }
+        }
+    }
+
+    /// Expand a shorthand string into a full config.
+    /// Known shorthands: sh, bash, zsh, fish, cmd, powershell, pwsh.
+    fn from_shorthand(s: &str) -> Self {
+        let (cmd, args) = match s {
+            "sh" | "bash" | "zsh" | "fish" => (s, vec!["-c"]),
+            "cmd" => ("cmd", vec!["/C"]),
+            "powershell" | "pwsh" => (s, vec!["-Command"]),
+            other => (other, vec!["-c"]),
+        };
+        Self { cmd: cmd.into(), args: args.into_iter().map(Into::into).collect() }
+    }
+}
+
+impl Default for ShellConfig {
+    fn default() -> Self { Self::platform_default() }
+}
+
+impl<'de> Deserialize<'de> for ShellConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where D: Deserializer<'de>
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Short(String),
+            Full { cmd: String, args: Vec<String> },
+        }
+        match Raw::deserialize(deserializer)? {
+            Raw::Short(s) => Ok(Self::from_shorthand(&s)),
+            Raw::Full { cmd, args } => Ok(Self { cmd, args }),
+        }
+    }
 }
 
 // -- Step --
@@ -91,6 +148,8 @@ pub struct StepMeta {
     pub retries: Option<u32>,
     #[serde(default, rename = "retry-delay")]
     pub retry_delay: Option<f64>,
+    #[serde(default)]
+    pub shell: Option<ShellConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]

@@ -86,7 +86,7 @@ Configs are JSON or JSONC (comments supported). A config has a name, version, op
 
 ### shell
 
-Run commands via `sh -c`. Supports working directory and env vars.
+Run commands via a configurable shell. Defaults to `sh -c` on Unix, `cmd /C` on Windows. Supports working directory and env vars.
 
 ```jsonc
 {
@@ -254,9 +254,12 @@ Control execution behavior per step:
   "sudo": true,         // Run shell commands with sudo
   "silent": ["stdout"], // Suppress output (--verbose overrides)
   "retries": 3,         // Auto-retry on failure
-  "retry-delay": 2.0    // Seconds to wait before each retry
+  "retry-delay": 2.0,   // Seconds to wait before each retry
+  "shell": "bash"       // Override shell (string shorthand or {cmd, args} object)
 }
 ```
+
+The `shell` field accepts a string shorthand (`"sh"`, `"bash"`, `"zsh"`, `"cmd"`, `"powershell"`, `"pwsh"`) or an object `{ "cmd": "...", "args": [...] }`. It can be set at the top-level `meta` (global default) or per-step (overrides global).
 
 ### Conditions
 

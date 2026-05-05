@@ -550,9 +550,9 @@ fn resolve_staging_dir(
             Ok((dir, None))
         }
         ExtractTo::Named(NamedExtractTo::Home) => {
-            let home = std::env::var("HOME")
-                .map_err(|_| BundleError::Parse("HOME is not set; cannot use extract-to: home".into()))?;
-            let dir = PathBuf::from(home).join(format!("rig-{stem}-staging"));
+            let home = dirs::home_dir()
+                .ok_or_else(|| BundleError::Parse("cannot determine home directory; cannot use extract-to: home".into()))?;
+            let dir = home.join(format!("rig-{stem}-staging"));
             std::fs::create_dir_all(&dir)?;
             Ok((dir, None))
         }

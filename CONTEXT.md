@@ -8,7 +8,7 @@ A Rust CLI tool called `rig` that reads a JSON/JSONC config and executes setup s
 
 | Kind    | Description                                      |
 |---------|--------------------------------------------------|
-| `shell` | Run commands via `sh -c` with optional dir/env   |
+| `shell` | Run commands via configurable shell (default: `sh -c` / `cmd /C`) |
 | `git`   | Clone a repo; handle existing dest               |
 | `fs`    | File operations: create, symlink, copy, move, delete |
 | `io`    | Structured logging (write) or prompt-and-read from stdin into a `@var` |
@@ -85,7 +85,9 @@ Actions are nested objects with a `kind` discriminator. Steps can have an `id` f
 - **`meta.vars`** — literal default values for variables. CLI `--set key=value` overrides. Use `--vars` to list all variables referenced in a config with their defaults.
 - **Markup validation** — io actions with `markup: true` are validated at parse time; invalid aml fails `--validate`.
 - **Cycle protection** — hard limit of 64 entries per step (not user-configurable).
-- **Tilde expansion** — `~` expands to `$HOME` in all path fields.
+- **Tilde expansion** — `~` expands to home directory via `dirs` crate (cross-platform).
+- **Configurable shell** — `meta.shell` (global) and per-step `meta.shell` override the default shell. String shorthand (`"bash"`) or object `{ "cmd": "...", "args": [...] }`. Defaults to `sh -c` on Unix, `cmd /C` on Windows.
+- **Windows compatibility** — symlinks use platform APIs (clear error on permission failure), sudo is skipped with a warning, shell defaults to `cmd /C`.
 - **JSONC support** — `//` and `/* */` comments via `json_comments` crate.
 - **Colored output** — via `aml` crate (green success, yellow warnings, red errors, cyan IDs, dim labels).
 - **Validation** — duplicate IDs and unknown step references caught at parse time.
