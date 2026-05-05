@@ -35,12 +35,14 @@ Configs and bundles can also be loaded from URLs, git repos, or local directorie
 rig https://example.com/setup.jsonc --set project=my-app
 rig https://example.com/setup.rig
 rig https://github.com/user/dev-setup --set name=my-app  # clone repo, find manifest
+rig git@github.com:user/dev-setup.git --set name=my-app  # SSH clone
 rig ./my-template-dir                                     # local directory with manifest
 ```
 
 When given a git repo URL (GitHub, GitLab, Bitbucket, Codeberg, or any `.git`
 URL), rig shallow-clones it and looks for `manifest.json` or `manifest.jsonc`
-at the root — treating it as a bundle source directory. The same applies to
+at the root — treating it as a bundle source directory. SSH URLs
+(`git@host:user/repo.git`, `ssh://...`) are also supported. The same applies to
 local directories: if the path is a directory containing a manifest, rig runs
 it as a bundle without needing to `rig pack` first.
 

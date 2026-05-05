@@ -65,6 +65,7 @@ tests/
 - `Condition` — `Action(skip/overwrite/append/panic)` or `Execute { execute: StepRef }`
 - `GitOnConflict` — `Skip` (default), `Pull`, `Fail`
 - `StepMeta` — `optional`, `fallible`, `sudo`, `silent: Vec<Silent>`, `retries?`, `retry_delay?`, `shell?: ShellConfig`
+- `ShellConfig` — `{ cmd: String, args: Vec<String> }`; custom deserialize: string shorthand (`"bash"` → `{cmd:"bash", args:["-c"]}`) or object. Platform default: `sh -c` (Unix), `cmd /C` (Windows).
 - `BundleMeta` (in `bundle.rs`) — `extract_to: ExtractTo`, `cleanup: Cleanup`, `binary: Vec<String>` (globset patterns)
 - `ExtractTo` — `Named(Tmp | Cwd | Home)` or `Custom { path: String }`; default `Named(Tmp)`
 - `Cleanup` — `Always`, `OnSuccess` (default), `Never`
@@ -90,6 +91,7 @@ tests/
 - `fs`: dispatch to create/symlink/copy/move/delete with condition handling; create supports `content` for inline file writing
 - `io`: print message with level prefix; write to log file if configured
 - `var`: set `@` variable from command stdout / step stdout / file contents / (stdin feed via `to`)
+- `cond`: substitute `cmp`, match against `when` keys, run matched step ref(s); fall back to `default` if no match
 - Handler resolution: `on-return[exact code]` → `on-return["_"]` → `on-success`/`on-failure`
 - `then`: run sequentially after action succeeds or is handled; skipped if action fails unhandled
 - `optional`: skipped in normal flow; only runs when referenced
