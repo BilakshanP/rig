@@ -29,12 +29,20 @@ rig setup.json --describe <id> --depth  # Expand sub-steps recursively
 rig setup.json --describe <id> --depth 2  # Expand up to 2 levels
 ```
 
-Configs and bundles can also be loaded from URLs:
+Configs and bundles can also be loaded from URLs, git repos, or local directories:
 
 ```bash
 rig https://example.com/setup.jsonc --set project=my-app
 rig https://example.com/setup.rig
+rig https://github.com/user/dev-setup --set name=my-app  # clone repo, find manifest
+rig ./my-template-dir                                     # local directory with manifest
 ```
+
+When given a git repo URL (GitHub, GitLab, Bitbucket, Codeberg, or any `.git`
+URL), rig shallow-clones it and looks for `manifest.json` or `manifest.jsonc`
+at the root — treating it as a bundle source directory. The same applies to
+local directories: if the path is a directory containing a manifest, rig runs
+it as a bundle without needing to `rig pack` first.
 
 ### Bundle subcommands
 

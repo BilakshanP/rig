@@ -133,52 +133,100 @@ fn main() -> ExitCode {
         Some((k.to_string(), v.to_string()))
     }).collect();
 
-    let (config_path, _tmp) = if raw_config.starts_with("http://") || raw_config.starts_with("https://") {
-        match fetch_url(&raw_config) {
-            Ok(p) => {
-                let s = p.to_string_lossy().into_owned();
-                (s, Some(p))
-            }
-            Err(e) => {
-                eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
-                return ExitCode::FAILURE;
-            }
-        }
-    } else {
-        (raw_config.clone(), None)
-    };
-
-    // Bundle detection: if the path points at a `.rig` archive (or has gzip
-    // magic bytes), open it, stage it per `bundle.extract-to`, and redirect
-    // `config_path` to the manifest inside the staging dir. The BundleCtx is
-    // bound at function scope so its cleanup runs at end of main.
-    //
     // Pure-inspection flags (`--validate`, `--list`, `--describe`, `--vars`)
     // should be able to open a bundle without providing every required
     // variable via `--set`; force placeholder-mode for the manifest parse in
-    // that case so undefined vars don't abort the flow. `--dry-run` and
-    // `--only` still run through full validation because they need a
-    // resolvable scope.
+    // that case so undefined vars don't abort the flow.
     let inspection_only = cli.validate
         || cli.list
         || cli.list_vars
         || cli.describe.is_some();
     let effective_placeholder = cli.placeholder || inspection_only;
 
+    // Dispatch: determine what kind of input we have and resolve it to a
+    // config path + optional BundleCtx.
     let mut bundle_ctx: Option<bundle::BundleCtx> = None;
-    let config_path = if bundle::looks_like_bundle(std::path::Path::new(&config_path)) {
-        match bundle::open_bundle(std::path::Path::new(&config_path), &vars, effective_placeholder) {
+    let config_path: String;
+
+    let is_url = raw_config.starts_with("http://") || raw_config.starts_with("https://");
+    let is_local_dir = !is_url && std::path::Path::new(&raw_config).is_dir();
+
+    if is_local_dir {
+        // Local directory → look for manifest and treat as bundle source.
+        match bundle::open_directory(std::path::Path::new(&raw_config), &vars, effective_placeholder) {
             Ok((_cfg, ctx)) => {
-                // Locate the manifest inside the staging root. open_bundle
-                // already verified it exists.
                 let manifest = if ctx.root.join("manifest.jsonc").is_file() {
                     ctx.root.join("manifest.jsonc")
                 } else {
                     ctx.root.join("manifest.json")
                 };
-                let s = manifest.to_string_lossy().into_owned();
+                config_path = manifest.to_string_lossy().into_owned();
                 bundle_ctx = Some(ctx);
-                s
+            }
+            Err(e) => {
+                eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
+                return ExitCode::FAILURE;
+            }
+        }
+    } else if is_url && bundle::looks_like_git_repo(&raw_config) {
+        // Git repo URL → clone and treat as bundle source.
+        match bundle::open_git_repo(&raw_config, &vars, effective_placeholder) {
+            Ok((_cfg, ctx)) => {
+                let manifest = if ctx.root.join("manifest.jsonc").is_file() {
+                    ctx.root.join("manifest.jsonc")
+                } else {
+                    ctx.root.join("manifest.json")
+                };
+                config_path = manifest.to_string_lossy().into_owned();
+                bundle_ctx = Some(ctx);
+            }
+            Err(e) => {
+                eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
+                return ExitCode::FAILURE;
+            }
+        }
+    } else if is_url {
+        // Regular URL → fetch file.
+        match fetch_url(&raw_config) {
+            Ok(p) => {
+                let fetched = p.to_string_lossy().into_owned();
+                // Check if fetched file is a bundle.
+                if bundle::looks_like_bundle(&p) {
+                    match bundle::open_bundle(&p, &vars, effective_placeholder) {
+                        Ok((_cfg, ctx)) => {
+                            let manifest = if ctx.root.join("manifest.jsonc").is_file() {
+                                ctx.root.join("manifest.jsonc")
+                            } else {
+                                ctx.root.join("manifest.json")
+                            };
+                            config_path = manifest.to_string_lossy().into_owned();
+                            bundle_ctx = Some(ctx);
+                        }
+                        Err(e) => {
+                            eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
+                            return ExitCode::FAILURE;
+                        }
+                    }
+                } else {
+                    config_path = fetched;
+                }
+            }
+            Err(e) => {
+                eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
+                return ExitCode::FAILURE;
+            }
+        }
+    } else if bundle::looks_like_bundle(std::path::Path::new(&raw_config)) {
+        // Local .rig bundle archive.
+        match bundle::open_bundle(std::path::Path::new(&raw_config), &vars, effective_placeholder) {
+            Ok((_cfg, ctx)) => {
+                let manifest = if ctx.root.join("manifest.jsonc").is_file() {
+                    ctx.root.join("manifest.jsonc")
+                } else {
+                    ctx.root.join("manifest.json")
+                };
+                config_path = manifest.to_string_lossy().into_owned();
+                bundle_ctx = Some(ctx);
             }
             Err(e) => {
                 eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
@@ -186,7 +234,8 @@ fn main() -> ExitCode {
             }
         }
     } else {
-        config_path
+        // Plain local config file.
+        config_path = raw_config.clone();
     };
 
     if cli.list_vars {

@@ -5,7 +5,8 @@ Read `CONTEXT.md` first for full project context.
 ## Current State
 
 - Fully implemented with `.rig` bundle format, manifest+templates, `expand` flag on fs actions, and bundle-aware `fs.copy` content rendering
-- 140 tests passing (127 unit + 13 integration), clippy clean
+- Git repo URLs and local directories as input (shallow-clone + manifest lookup)
+- 150 tests passing (134 unit + 16 integration), clippy clean
 - JSONC support via `json_comments` crate
 - Bundle I/O via `tar` + `flate2` + `tempfile` + `globset`
 
@@ -28,7 +29,8 @@ src/
                     + `bundle: Option<BundleMeta>` + `ExpandFlags` on every FsOp
   executor.rs     — Runner with execute dispatch, dry-run audit, retry tracking, runtime subst,
                     bundle-aware fs.copy content rendering
-  bundle.rs       — .rig archive format: pack/unpack/info, open_bundle, BundleCtx + Drop-based
+  bundle.rs       — .rig archive format: pack/unpack/info, open_bundle, open_directory,
+                    open_git_repo, looks_like_git_repo, clone_repo, BundleCtx + Drop-based
                     cleanup, BinaryMatcher (globset)
   inspect.rs      — --list and --describe display logic
   vars.rs         — Variable system: VarRef parser, Scope (with #bundle), substitution with

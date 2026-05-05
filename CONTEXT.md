@@ -127,9 +127,13 @@ rig unpack <file>.rig -o <dir>  # Extract a .rig bundle
 rig info <file>.rig             # Summary of manifest + file list
 ```
 
-`<config-file>` can be a local path, a URL (`http://` / `https://`), or a
-`.rig` bundle archive. Bundles are auto-detected by `.rig` extension or
-gzip magic bytes.
+`<config-file>` can be a local path, a URL (`http://` / `https://`), a
+`.rig` bundle archive, a git repo URL, or a local directory. Bundles are
+auto-detected by `.rig` extension or gzip magic bytes. Git repo URLs
+(GitHub, GitLab, Bitbucket, Codeberg, or any `.git` URL) are shallow-cloned
+and treated as bundle source directories. Local directories containing
+`manifest.json` or `manifest.jsonc` are run directly as bundles without
+needing `rig pack`.
 
 ## Dry-Run Audit
 

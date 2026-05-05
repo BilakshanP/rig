@@ -582,6 +582,151 @@ pub fn looks_like_bundle(path: &Path) -> bool {
     false
 }
 
+/// Returns `true` if `input` looks like a git repo URL (github/gitlab/etc.)
+/// rather than a raw JSON/rig file URL.
+pub fn looks_like_git_repo(input: &str) -> bool {
+    if !input.starts_with("http://") && !input.starts_with("https://") {
+        return false;
+    }
+    // If it ends with a known config extension, it's a file URL, not a repo.
+    let lower = input.to_lowercase();
+    if lower.ends_with(".json")
+        || lower.ends_with(".jsonc")
+        || lower.ends_with(".rig")
+    {
+        return false;
+    }
+    // Match common git hosting patterns: github.com, gitlab.com, bitbucket.org,
+    // codeberg.org, or any URL ending in .git
+    if lower.ends_with(".git") {
+        return true;
+    }
+    let without_scheme = lower
+        .strip_prefix("https://")
+        .or_else(|| lower.strip_prefix("http://"))
+        .unwrap_or(&lower);
+    let host = without_scheme.split('/').next().unwrap_or("");
+    let known_hosts = ["github.com", "gitlab.com", "bitbucket.org", "codeberg.org"];
+    if known_hosts.contains(&host) {
+        // Must have at least owner/repo path segments
+        let path_part = without_scheme.strip_prefix(host).unwrap_or("");
+        let segments: Vec<&str> = path_part.split('/').filter(|s| !s.is_empty()).collect();
+        return segments.len() >= 2;
+    }
+    false
+}
+
+/// Shallow-clone a git repo into a temp directory. Returns the temp dir handle
+/// and the path to the cloned repo root.
+pub fn clone_repo(url: &str) -> Result<(tempfile::TempDir, PathBuf), BundleError> {
+    let td = tempfile::Builder::new()
+        .prefix("rig-repo-")
+        .tempdir()?;
+    let dest = td.path().join("repo");
+    let status = std::process::Command::new("git")
+        .args(["clone", "--depth", "1", "--single-branch", url])
+        .arg(&dest)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .status()
+        .map_err(|e| BundleError::Parse(format!("failed to run git: {e}")))?;
+    if !status.success() {
+        return Err(BundleError::Parse(format!("git clone failed for {url}")));
+    }
+    Ok((td, dest))
+}
+
+/// Open a local directory as a bundle source. Looks for `manifest.jsonc` or
+/// `manifest.json` at the root, parses it, and builds a `BundleCtx` pointing
+/// at the directory (no extraction needed — it's already on disk).
+pub fn open_directory(
+    dir: &Path,
+    cli_vars: &std::collections::HashMap<String, String>,
+    placeholder: bool,
+) -> Result<(crate::config::Config, BundleCtx), BundleError> {
+    let root = dir.canonicalize().map_err(BundleError::Io)?;
+    let manifest_path = if root.join("manifest.jsonc").is_file() {
+        root.join("manifest.jsonc")
+    } else if root.join("manifest.json").is_file() {
+        root.join("manifest.json")
+    } else {
+        return Err(BundleError::MissingManifest);
+    };
+
+    let manifest_str = manifest_path
+        .to_str()
+        .ok_or_else(|| BundleError::Parse("non-utf8 manifest path".into()))?;
+    let cfg = crate::config::parse_config(manifest_str, cli_vars, placeholder)
+        .map_err(|e| BundleError::Parse(e.to_string()))?;
+
+    let binary_patterns = cfg
+        .bundle
+        .as_ref()
+        .map(|b| b.binary.clone())
+        .unwrap_or_default();
+    let binary = BinaryMatcher::new(&binary_patterns)?;
+    let cleanup = cfg
+        .bundle
+        .as_ref()
+        .map(|b| b.cleanup)
+        .unwrap_or_default();
+
+    let ctx = BundleCtx {
+        root,
+        binary,
+        cleanup,
+        succeeded: std::cell::Cell::new(false),
+        _temp_dir: None,
+    };
+    Ok((cfg, ctx))
+}
+
+/// Open a cloned git repo as a bundle. Clones the repo, then opens the
+/// directory. The `TempDir` handle is stored in the returned `BundleCtx` so
+/// cleanup happens on drop.
+pub fn open_git_repo(
+    url: &str,
+    cli_vars: &std::collections::HashMap<String, String>,
+    placeholder: bool,
+) -> Result<(crate::config::Config, BundleCtx), BundleError> {
+    let (td, repo_path) = clone_repo(url)?;
+    let root = repo_path.canonicalize().map_err(BundleError::Io)?;
+    let manifest_path = if root.join("manifest.jsonc").is_file() {
+        root.join("manifest.jsonc")
+    } else if root.join("manifest.json").is_file() {
+        root.join("manifest.json")
+    } else {
+        return Err(BundleError::MissingManifest);
+    };
+
+    let manifest_str = manifest_path
+        .to_str()
+        .ok_or_else(|| BundleError::Parse("non-utf8 manifest path".into()))?;
+    let cfg = crate::config::parse_config(manifest_str, cli_vars, placeholder)
+        .map_err(|e| BundleError::Parse(e.to_string()))?;
+
+    let binary_patterns = cfg
+        .bundle
+        .as_ref()
+        .map(|b| b.binary.clone())
+        .unwrap_or_default();
+    let binary = BinaryMatcher::new(&binary_patterns)?;
+    let cleanup = cfg
+        .bundle
+        .as_ref()
+        .map(|b| b.cleanup)
+        .unwrap_or_default();
+
+    let ctx = BundleCtx {
+        root,
+        binary,
+        cleanup,
+        succeeded: std::cell::Cell::new(false),
+        _temp_dir: Some(td),
+    };
+    Ok((cfg, ctx))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1056,5 +1201,57 @@ mod tests {
         ctx.mark_success();
         drop(ctx);
         assert!(!stage.exists(), "Custom staging dir should be removed");
+    }
+
+    #[test]
+    fn looks_like_git_repo_github() {
+        assert!(looks_like_git_repo("https://github.com/user/repo"));
+        assert!(looks_like_git_repo("https://github.com/user/repo/"));
+        assert!(looks_like_git_repo("https://github.com/org/my-setup"));
+    }
+
+    #[test]
+    fn looks_like_git_repo_dot_git_suffix() {
+        assert!(looks_like_git_repo("https://example.com/foo/bar.git"));
+        assert!(looks_like_git_repo("https://self-hosted.dev/team/project.git"));
+    }
+
+    #[test]
+    fn looks_like_git_repo_rejects_file_urls() {
+        assert!(!looks_like_git_repo("https://example.com/setup.json"));
+        assert!(!looks_like_git_repo("https://example.com/setup.jsonc"));
+        assert!(!looks_like_git_repo("https://example.com/setup.rig"));
+    }
+
+    #[test]
+    fn looks_like_git_repo_rejects_non_urls() {
+        assert!(!looks_like_git_repo("./my-dir"));
+        assert!(!looks_like_git_repo("/tmp/setup.json"));
+        assert!(!looks_like_git_repo("setup.json"));
+    }
+
+    #[test]
+    fn looks_like_git_repo_rejects_github_without_repo_path() {
+        assert!(!looks_like_git_repo("https://github.com/"));
+        assert!(!looks_like_git_repo("https://github.com/user"));
+    }
+
+    #[test]
+    fn open_directory_finds_manifest() {
+        let td = tempfile::tempdir().unwrap();
+        std::fs::write(
+            td.path().join("manifest.json"),
+            r#"{"name":"test","version":"1.0.0","steps":[]}"#,
+        ).unwrap();
+        let (cfg, ctx) = open_directory(td.path(), &Default::default(), false).unwrap();
+        assert_eq!(cfg.name, "test");
+        assert_eq!(ctx.root, td.path().canonicalize().unwrap());
+    }
+
+    #[test]
+    fn open_directory_errors_without_manifest() {
+        let td = tempfile::tempdir().unwrap();
+        let result = open_directory(td.path(), &Default::default(), false);
+        assert!(result.is_err());
     }
 }
