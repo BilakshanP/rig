@@ -36,6 +36,7 @@ pub struct Runner {
     pub index: HashMap<String, Step>,
     pub dry_run: bool,
     pub verbose: bool,
+    pub quiet: u8,
     pub config_meta: Meta,
     pub scope: RefCell<crate::vars::Scope>,
     /// Present when we're running from a `.rig` bundle: carries the staging
@@ -89,7 +90,7 @@ impl Runner {
             None
         };
         Self {
-            index, dry_run, verbose, config_meta,
+            index, dry_run, verbose, quiet: 0, config_meta,
             scope: RefCell::new(scope),
             bundle,
             log_file: RefCell::new(log_file),
@@ -134,7 +135,9 @@ impl Runner {
             if *count > MAX_ENTRIES { return Err(ExecError::CycleDetected(step.name.clone())); }
         }
 
-        println!("{indent}{}", style::render(&format!("<fg>-></f> <mb>{}</m>", step.name)));
+        if self.quiet < 1 {
+            println!("{indent}{}", style::render(&format!("<fg>-></f> <mb>{}</m>", step.name)));
+        }
 
         let max_retries = step.meta.retries.or(self.config_meta.retries).unwrap_or(0);
         let mut last_err = None;
@@ -285,8 +288,8 @@ impl Runner {
 
     fn maybe_print(&self, stdout: &[u8], stderr: &[u8], meta: &StepMeta) {
         let silent = if meta.silent.is_empty() { &self.config_meta.silent } else { &meta.silent };
-        let show_out = !silent.contains(&Silent::Stdout) || self.verbose;
-        let show_err = !silent.contains(&Silent::Stderr) || self.verbose;
+        let show_out = self.quiet < 2 && (!silent.contains(&Silent::Stdout) || self.verbose);
+        let show_err = self.quiet < 2 && (!silent.contains(&Silent::Stderr) || self.verbose);
         if show_out && !stdout.is_empty() { print!("{}", String::from_utf8_lossy(stdout)); }
         if show_err && !stderr.is_empty() { eprint!("{}", String::from_utf8_lossy(stderr)); }
         // Always write to log file
@@ -474,7 +477,9 @@ impl Runner {
         let sub_index = crate::config::build_step_index(&cfg);
         let sub_runner = Runner::new(sub_index, self.dry_run, self.verbose, cfg.meta.clone(), sub_scope);
 
-        println!("{indent}  {}", style::render(&format!("<fc>rig:</f> <mb>{}</m>", cfg.name)));
+        if self.quiet < 1 {
+            println!("{indent}  {}", style::render(&format!("<fc>rig:</f> <mb>{}</m>", cfg.name)));
+        }
         for step in &cfg.steps {
             if step.meta.optional { continue; }
             sub_runner.run_step(step, depth + 1)?;
@@ -569,7 +574,7 @@ impl Runner {
             IoLevel::Warn => format!("{indent}  {}", style::render(&format!("<fy>warn:</f> {text}"))),
             IoLevel::Error => format!("{indent}  {}", style::render(&format!("<fr>error:</f> {text}"))),
         };
-        println!("{line}");
+        if self.quiet < 2 { println!("{line}"); }
         let plain = if markup { message.to_string() } else { text.clone() };
         let prefix = match level {
             IoLevel::Log => "LOG",
@@ -743,7 +748,7 @@ impl Runner {
                 }
             }
             let verb = if append_mode { "appended to" } else { "created" };
-            println!("{indent}  {}", style::render(&format!("<fg>{verb}:</f> {}", full.display())));
+            if self.quiet < 1 { println!("{indent}  {}", style::render(&format!("<fg>{verb}:</f> {}", full.display()))); }
         }
         Ok(())
     }

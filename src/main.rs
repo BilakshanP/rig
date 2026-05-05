@@ -27,6 +27,9 @@ struct Cli {
     /// Show suppressed output (meta.silent)
     #[arg(long, short)]
     verbose: bool,
+    /// Suppress output (-q: chrome, -qq: all output, -qqq: even errors)
+    #[arg(short = 'q', long, action = clap::ArgAction::Count)]
+    quiet: u8,
     /// Run only the step with this ID
     #[arg(long)]
     only: Option<String>,
@@ -301,8 +304,16 @@ fn main() -> ExitCode {
         scope.set_bundle_root(ctx.root.to_string_lossy().into_owned());
     }
     let runner = match bundle_ctx.take() {
-        Some(ctx) => executor::Runner::new_with_bundle(index, cli.dry_run, cli.verbose, cfg.meta.clone(), scope, ctx),
-        None => executor::Runner::new(index, cli.dry_run, cli.verbose, cfg.meta.clone(), scope),
+        Some(ctx) => {
+            let mut r = executor::Runner::new_with_bundle(index, cli.dry_run, cli.verbose, cfg.meta.clone(), scope, ctx);
+            r.quiet = cli.quiet;
+            r
+        }
+        None => {
+            let mut r = executor::Runner::new(index, cli.dry_run, cli.verbose, cfg.meta.clone(), scope);
+            r.quiet = cli.quiet;
+            r
+        }
     };
     let cwd = std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default();
 
@@ -322,7 +333,9 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    println!("{}", style::render(&format!("<fg>Running:</f> <mb>{}</m> <md>({cwd})</m>", cfg.name)));
+    if cli.quiet < 1 {
+        println!("{}", style::render(&format!("<fg>Running:</f> <mb>{}</m> <md>({cwd})</m>", cfg.name)));
+    }
 
     if let Some(id) = &cli.only {
         match runner.index.get(id) {
@@ -358,7 +371,9 @@ fn main() -> ExitCode {
         }
     }
 
-    println!("{}", style::render("<fg>Done.</f>"));
+    if cli.quiet < 1 {
+        println!("{}", style::render("<fg>Done.</f>"));
+    }
     ExitCode::SUCCESS
 }
 
