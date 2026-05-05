@@ -22,17 +22,14 @@ mod tests {
 
     #[test]
     fn tilde_alone() {
-        let home = std::env::var("HOME").unwrap();
-        assert_eq!(expand_tilde("~"), PathBuf::from(&home));
+        let home = dirs::home_dir().unwrap();
+        assert_eq!(expand_tilde("~"), home);
     }
 
     #[test]
     fn tilde_slash_path() {
-        let home = std::env::var("HOME").unwrap();
-        assert_eq!(
-            expand_tilde("~/foo/bar"),
-            PathBuf::from(format!("{home}/foo/bar"))
-        );
+        let home = dirs::home_dir().unwrap();
+        assert_eq!(expand_tilde("~/foo/bar"), home.join("foo/bar"));
     }
 
     #[test]
