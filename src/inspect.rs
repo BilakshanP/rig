@@ -144,6 +144,15 @@ fn describe_inner(
                 VarSource::File { file } => println!("{ai}{}", style::render(&format!("<md>var {name} \\<- file</m> {file:?}"))),
             }
         }
+        Action::Cond { cmp, when, default } => {
+            println!("{ai}{}", style::render(&format!("<md>cond:</m> {cmp:?}")));
+            for (key, refs) in when {
+                println!("{ai}  {}", style::render(&format!("<fc>{key:?}</f> -> {}", step_refs_label(refs))));
+            }
+            if let Some(refs) = default {
+                println!("{ai}  {}", style::render(&format!("<fy>default</f> -> {}", step_refs_label(refs))));
+            }
+        }
     }
 
     if let Some(refs) = &step.on_success { println!("{ai}{}", style::render(&format!("<md>on-success:</m> {}", step_refs_label(refs)))); }

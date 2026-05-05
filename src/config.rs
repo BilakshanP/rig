@@ -137,6 +137,13 @@ pub enum Action {
         #[serde(flatten)]
         source: VarSource,
     },
+    Cond {
+        cmp: String,
+        #[serde(deserialize_with = "de_cond_when")]
+        when: HashMap<String, Vec<StepRef>>,
+        #[serde(default, deserialize_with = "de_opt_single_or_vec")]
+        default: Option<Vec<StepRef>>,
+    },
 }
 
 // -- Var --
@@ -386,6 +393,27 @@ where
     }).collect()))
 }
 
+/// Deserialize `cond.when`: HashMap<String, StepRef | Vec<StepRef>> into HashMap<String, Vec<StepRef>>.
+fn de_cond_when<'de, D>(d: D) -> Result<HashMap<String, Vec<StepRef>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum OneOrMany {
+        One(StepRef),
+        Many(Vec<StepRef>),
+    }
+    let raw: HashMap<String, OneOrMany> = HashMap::deserialize(d)?;
+    Ok(raw.into_iter().map(|(k, v)| {
+        let v = match v {
+            OneOrMany::One(sr) => vec![sr],
+            OneOrMany::Many(v) => v,
+        };
+        (k, v)
+    }).collect())
+}
+
 // -- Errors --
 
 #[derive(Debug)]
@@ -564,6 +592,9 @@ fn collect_refs_in_action(action: &Action, refs: &mut Vec<crate::vars::VarRef>) 
             VarSource::File { file } => refs.extend(crate::vars::scan_refs(file)),
             _ => {}
         },
+        Action::Cond { cmp, .. } => {
+            refs.extend(crate::vars::scan_refs(cmp));
+        },
     }
 }
 
@@ -688,6 +719,10 @@ fn visit_step_refs(step: &Step, f: &mut impl FnMut(&StepRef) -> Result<(), Confi
     }
     if let Action::Fs { if_exists: Some(Condition::Execute { execute }), .. } = &step.action { f(execute)?; }
     if let Action::Fs { if_not_exists: Some(Condition::Execute { execute }), .. } = &step.action { f(execute)?; }
+    if let Action::Cond { when, default, .. } = &step.action {
+        for refs in when.values() { for sr in refs { f(sr)?; } }
+        if let Some(refs) = default { for sr in refs { f(sr)?; } }
+    }
     Ok(())
 }
 

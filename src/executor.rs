@@ -237,6 +237,7 @@ impl Runner {
             Action::Fs { op, if_exists, if_not_exists } => { self.exec_fs(op, if_exists.as_ref(), if_not_exists.as_ref(), indent)?; Ok(0) }
             Action::Io { op } => { self.exec_io(op, meta, indent)?; Ok(0) }
             Action::Var { name, source } => { self.exec_var(name, source, meta, indent)?; Ok(0) }
+            Action::Cond { cmp, when, default } => { self.exec_cond(cmp, when, default.as_deref(), indent, _depth)?; Ok(0) }
         }
     }
 
@@ -381,6 +382,37 @@ impl Runner {
                 self.scope.borrow_mut().set(&key, contents);
                 println!("{indent}  {}", style::render(&format!("<fg>set</f> <mb>{key}</m> \\<- {}", path.display())));
             }
+        }
+        Ok(())
+    }
+
+    fn exec_cond(
+        &self,
+        cmp: &str,
+        when: &HashMap<String, Vec<StepRef>>,
+        default: Option<&[StepRef]>,
+        indent: &str,
+        depth: usize,
+    ) -> Result<(), ExecError> {
+        let value = self.subst(cmp);
+
+        if self.dry_run {
+            println!("{indent}  [dry-run] cond: compare {cmp:?} (resolved: {value:?})");
+            for (key, refs) in when {
+                let labels: Vec<_> = refs.iter().map(step_ref_label).collect();
+                println!("{indent}    when {key:?} -> {}", labels.join(", "));
+            }
+            if let Some(refs) = default {
+                let labels: Vec<_> = refs.iter().map(step_ref_label).collect();
+                println!("{indent}    default -> {}", labels.join(", "));
+            }
+            return Ok(());
+        }
+
+        if let Some(refs) = when.get(&value) {
+            self.run_step_refs(refs, depth + 1)?;
+        } else if let Some(refs) = default {
+            self.run_step_refs(refs, depth + 1)?;
         }
         Ok(())
     }
@@ -978,6 +1010,15 @@ impl Runner {
                     VarSource::To { to } => println!("{ai}{}", style::render(&format!("<md>var {name} -></m> {}", step_ref_label(to)))),
                     VarSource::Command { command } => println!("{ai}{}", style::render(&format!("<md>var {name} :=</m> {command:?}"))),
                     VarSource::File { file } => println!("{ai}{}", style::render(&format!("<md>var {name} \\<- file</m> {file:?}"))),
+                }
+            }
+            Action::Cond { cmp, when, default } => {
+                println!("{ai}{}", style::render(&format!("<md>cond:</m> {cmp:?}")));
+                for (key, refs) in when {
+                    println!("{ai}  {}", style::render(&format!("<fc>{key:?}</f> -> {}", step_refs_label(refs))));
+                }
+                if let Some(refs) = default {
+                    println!("{ai}  {}", style::render(&format!("<fy>default</f> -> {}", step_refs_label(refs))));
                 }
             }
         }
