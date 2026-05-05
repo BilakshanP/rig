@@ -1,1 +1,15 @@
-{ "name": "windows-setup", "version": "1.0.0", "meta": { "vars": { "name": "app" } }, "steps": [{ "name": "Windows", "action": { "kind": "shell", "commands": ["echo [windows] setting up {{name}}"] } }] }
+{
+    "$schema": "../../schema.json",
+    "name": "windows-setup",
+    "version": "1.0.0",
+    "meta": { "vars": { "name": "app" } },
+    "steps": [
+        {
+            "name": "Windows",
+            "action": {
+                "kind": "shell",
+                "commands": ["echo [windows] setting up {{name}}"]
+            }
+        }
+    ]
+}

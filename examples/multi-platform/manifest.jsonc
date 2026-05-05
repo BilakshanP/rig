@@ -1,18 +1,50 @@
 {
-  "name": "multi-platform",
-  "version": "1.0.0",
-  "meta": { "vars": { "name": "my-app" } },
-  "steps": [
-    {
-      "name": "Platform setup",
-      "action": {
-        "kind": "cond",
-        "cmp": "{{#os}}",
-        "when": { "linux": "do-linux", "windows": "do-windows", "macos": "do-macos" }
-      }
-    },
-    { "id": "do-linux", "name": "Linux", "action": { "kind": "rig", "file": "{{#bundle}}/linux.jsonc", "set": { "name": "{{name}}" } }, "meta": { "optional": true } },
-    { "id": "do-windows", "name": "Windows", "action": { "kind": "rig", "file": "{{#bundle}}/windows.jsonc", "set": { "name": "{{name}}" } }, "meta": { "optional": true } },
-    { "id": "do-macos", "name": "macOS", "action": { "kind": "rig", "file": "{{#bundle}}/macos.jsonc", "set": { "name": "{{name}}" } }, "meta": { "optional": true } }
-  ]
+    "$schema": "../../schema.json",
+    "name": "multi-platform",
+    "version": "1.0.0",
+    "meta": { "vars": { "name": "my-app" } },
+    "steps": [
+        {
+            "name": "Platform setup",
+            "action": {
+                "kind": "cond",
+                "cmp": "{{#os}}",
+                "when": {
+                    "linux": "do-linux",
+                    "windows": "do-windows",
+                    "macos": "do-macos"
+                }
+            }
+        },
+        {
+            "id": "do-linux",
+            "name": "Linux",
+            "action": {
+                "kind": "rig",
+                "file": "{{#bundle}}/linux.jsonc",
+                "set": { "name": "{{name}}" }
+            },
+            "meta": { "optional": true }
+        },
+        {
+            "id": "do-windows",
+            "name": "Windows",
+            "action": {
+                "kind": "rig",
+                "file": "{{#bundle}}/windows.jsonc",
+                "set": { "name": "{{name}}" }
+            },
+            "meta": { "optional": true }
+        },
+        {
+            "id": "do-macos",
+            "name": "macOS",
+            "action": {
+                "kind": "rig",
+                "file": "{{#bundle}}/macos.jsonc",
+                "set": { "name": "{{name}}" }
+            },
+            "meta": { "optional": true }
+        }
+    ]
 }
