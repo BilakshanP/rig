@@ -86,6 +86,7 @@ Actions are nested objects with a `kind` discriminator. Steps can have an `id` f
 - **`meta.vars`** — literal default values for variables. CLI `--set key=value` overrides. Use `--vars` to list all variables referenced in a config with their defaults.
 - **Markup validation** — io actions with `markup: true` are validated at parse time; invalid aml fails `--validate`.
 - **Cycle protection** — hard limit of 64 entries per step (not user-configurable).
+- **`depends-on`** — steps can declare prerequisites; resolved transitively with `--only`. Cycles rejected at parse time.
 - **Tilde expansion** — `~` expands to home directory via `dirs` crate (cross-platform).
 - **Configurable shell** — `meta.shell` (global) and per-step `meta.shell` override the default shell. String shorthand (`"bash"`) or object `{ "cmd": "...", "args": [...] }`. Defaults to `sh -c` on Unix, `cmd /C` on Windows.
 - **Windows compatibility** — symlinks use platform APIs (clear error on permission failure), sudo is skipped with a warning, shell defaults to `cmd /C`.

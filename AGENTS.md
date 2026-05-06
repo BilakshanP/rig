@@ -45,7 +45,7 @@ tests/
 
 - `Config` — `name`, `version`, optional `description`, `meta: Meta`, `bundle: Option<BundleMeta>`, `steps: Vec<Step>`
 - `Meta` — `log?`, `silent: Vec<Silent>`, `sudo`, `retries?`, `retry_delay?`, `shell?: ShellConfig`, `vars: serde_json::Value` (nested)
-- `Step` — `id?`, `name`, `description?`, `action: Action`, `on_success?: Vec<StepRef>`, `on_failure?: Vec<StepRef>`, `on_return?: HashMap<String, Vec<StepRef>>`, `then: Vec<StepRef>`, `meta: StepMeta`
+- `Step` — `id?`, `name`, `description?`, `action: Action`, `depends_on: Vec<String>`, `on_success?: Vec<StepRef>`, `on_failure?: Vec<StepRef>`, `on_return?: HashMap<String, Vec<StepRef>>`, `then: Vec<StepRef>`, `meta: StepMeta`
 - `StepRef` — `Id(String)` or `Inline(Box<Step>)`
 - `Action` — tagged enum on `kind`:
   - `Shell { commands: Vec<String>, dir?, env? }` (commands accepts single string or array)
@@ -103,7 +103,7 @@ tests/
 - Cycle protection: hard limit of 64 entries per step (not user-configurable)
 - `silent`: suppresses stdout/stderr; `--verbose` overrides
 - `dry_run`: full audit showing all steps, meta, conditions, handlers, then, summary
-- `--only <id>`: run/audit a single step
+- `--only <id>`: resolve `depends-on` transitively, then run the target step
 - `--validate`: parse-only validation
 - Runtime substitution: all string fields in actions (`commands`, `dir`, `env`, `repo`, `dest`, `path`, `from`, `to`, `content`, `message`) are substituted via `Scope` before use.
 
@@ -115,4 +115,5 @@ tests/
 - `@` vars need no definition (provided at runtime)
 - `var` action targeting a non-mutable var (no `@` prefix) rejected
 - Invalid aml markup in `io` with `markup: true` rejected
+- `depends-on` cycles rejected at parse time (DFS)
 - Cycles allowed (enforced at runtime via hard entry limit)
