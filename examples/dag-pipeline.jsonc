@@ -1,0 +1,69 @@
+// CI/CD pipeline demonstrating depends-on, then, and handlers as a DAG.
+//
+//   rig examples/dag-pipeline.jsonc --graph
+//   rig examples/dag-pipeline.jsonc --graph --dot | dot -Tsvg > pipeline.svg
+//   rig examples/dag-pipeline.jsonc --only deploy
+{
+    "$schema": "../schema.json",
+    "name": "ci-pipeline",
+    "version": "1.0.0",
+    "meta": { "vars": { "branch": "main" } },
+    "steps": [
+        {
+            "id": "checkout",
+            "name": "Checkout",
+            "action": { "kind": "shell", "commands": ["echo 'checkout {{branch}}'"] }
+        },
+        {
+            "id": "build",
+            "name": "Build",
+            "depends-on": ["checkout"],
+            "action": { "kind": "shell", "commands": ["echo 'building...'"] }
+        },
+        {
+            "id": "unit-tests",
+            "name": "Unit tests",
+            "depends-on": ["build"],
+            "action": { "kind": "shell", "commands": ["echo 'unit tests'"] },
+            "on-failure": "notify"
+        },
+        {
+            "id": "lint",
+            "name": "Lint",
+            "depends-on": ["build"],
+            "action": { "kind": "shell", "commands": ["echo 'linting'"] }
+        },
+        {
+            "id": "security-scan",
+            "name": "Security scan",
+            "depends-on": ["checkout"],
+            "action": { "kind": "shell", "commands": ["echo 'scanning'"] }
+        },
+        {
+            "id": "integration",
+            "name": "Integration tests",
+            "depends-on": ["unit-tests", "lint", "security-scan"],
+            "action": { "kind": "shell", "commands": ["echo 'integration'"] },
+            "then": ["report"]
+        },
+        {
+            "id": "deploy",
+            "name": "Deploy",
+            "depends-on": ["integration"],
+            "action": { "kind": "shell", "commands": ["echo 'deploying {{branch}}'"] },
+            "on-success": "notify"
+        },
+        {
+            "id": "notify",
+            "name": "Notify team",
+            "action": { "kind": "io", "level": "info", "message": "Pipeline complete for {{branch}}" },
+            "meta": { "optional": true }
+        },
+        {
+            "id": "report",
+            "name": "Generate report",
+            "action": { "kind": "shell", "commands": ["echo 'report generated'"] },
+            "meta": { "optional": true }
+        }
+    ]
+}

@@ -445,3 +445,170 @@ fn expand_label(flags: &ExpandFlags) -> Option<String> {
     }
     Some(parts.join(", "))
 }
+
+/// Edge in the execution graph.
+struct Edge {
+    from: String,
+    to: String,
+    label: String,
+}
+
+/// Collect all edges from the config (sequential, depends-on, then, handlers).
+fn collect_edges(cfg: &crate::config::Config) -> Vec<Edge> {
+    let mut edges = Vec::new();
+    let mut prev_id: Option<String> = None;
+
+    for step in &cfg.steps {
+        let from = step
+            .id
+            .clone()
+            .unwrap_or_else(|| format!("[{}]", step.name));
+
+        // Sequential order
+        if !step.meta.optional {
+            if let Some(prev) = &prev_id {
+                edges.push(Edge {
+                    from: prev.clone(),
+                    to: from.clone(),
+                    label: "seq".into(),
+                });
+            }
+        }
+
+        // depends-on
+        for dep in &step.depends_on {
+            edges.push(Edge {
+                from: from.clone(),
+                to: dep.clone(),
+                label: "depends-on".into(),
+            });
+        }
+
+        // then
+        for child in &step.then {
+            if let StepRef::Id(id) = child {
+                edges.push(Edge {
+                    from: from.clone(),
+                    to: id.clone(),
+                    label: "then".into(),
+                });
+            }
+        }
+
+        // on-success
+        if let Some(refs) = &step.on_success {
+            for sr in refs {
+                if let StepRef::Id(id) = sr {
+                    edges.push(Edge {
+                        from: from.clone(),
+                        to: id.clone(),
+                        label: "on-success".into(),
+                    });
+                }
+            }
+        }
+
+        // on-failure
+        if let Some(refs) = &step.on_failure {
+            for sr in refs {
+                if let StepRef::Id(id) = sr {
+                    edges.push(Edge {
+                        from: from.clone(),
+                        to: id.clone(),
+                        label: "on-failure".into(),
+                    });
+                }
+            }
+        }
+
+        // on-return
+        if let Some(map) = &step.on_return {
+            for (code, refs) in map {
+                for sr in refs {
+                    if let StepRef::Id(id) = sr {
+                        edges.push(Edge {
+                            from: from.clone(),
+                            to: id.clone(),
+                            label: format!("on-return({code})"),
+                        });
+                    }
+                }
+            }
+        }
+
+        if !step.meta.optional {
+            prev_id = Some(from);
+        }
+    }
+
+    edges
+}
+
+/// Print the execution graph as ASCII.
+pub fn print_graph(cfg: &crate::config::Config) {
+    let edges = collect_edges(cfg);
+
+    println!(
+        "{}",
+        style::render(&format!("<mb>{}</m> <md>execution graph</m>", cfg.name))
+    );
+    println!();
+
+    // Print nodes with outgoing edges grouped
+    let mut by_source: HashMap<String, Vec<(&str, &str)>> = HashMap::new();
+    for e in &edges {
+        by_source
+            .entry(e.from.clone())
+            .or_default()
+            .push((&e.to, &e.label));
+    }
+
+    for step in &cfg.steps {
+        let id = step
+            .id
+            .clone()
+            .unwrap_or_else(|| format!("[{}]", step.name));
+        let display = step.id.as_deref().unwrap_or(&step.name);
+        print!("  {}", style::render(&format!("<fc>{display}</f>")));
+        if let Some(targets) = by_source.get(&id) {
+            println!();
+            for (to, label) in targets {
+                println!("    {to} ({label})");
+            }
+        } else {
+            println!();
+        }
+    }
+}
+
+/// Print the execution graph in Graphviz DOT format.
+pub fn print_graph_dot(cfg: &crate::config::Config) {
+    let edges = collect_edges(cfg);
+
+    println!("digraph \"{}\" {{", cfg.name);
+    println!("    rankdir=LR;");
+    println!("    node [shape=box];");
+
+    for step in &cfg.steps {
+        let id = step
+            .id
+            .clone()
+            .unwrap_or_else(|| format!("[{}]", step.name));
+        println!("    \"{}\" [label=\"{}\"];", id, step.name);
+    }
+
+    for e in &edges {
+        let style = match e.label.as_str() {
+            "seq" => "style=dotted",
+            "depends-on" => "style=bold",
+            "then" => "style=solid",
+            _ => "style=dashed",
+        };
+        println!(
+            "    \"{}\" -> \"{}\" [label=\"{}\", {}];",
+            e.from, e.to, e.label, style
+        );
+    }
+
+    println!("}}");
+}

@@ -57,6 +57,12 @@ struct Cli {
     /// List all variables referenced in config with their defaults
     #[arg(long = "vars")]
     list_vars: bool,
+    /// Show execution graph (combine with --dot for Graphviz DOT output)
+    #[arg(long)]
+    graph: bool,
+    /// Output in DOT format (use with --graph)
+    #[arg(long)]
+    dot: bool,
     /// Set a variable: --set key=value (repeatable, used as {{key}} in config)
     #[arg(long = "set", value_name = "KEY=VALUE")]
     set_vars: Vec<String>,
@@ -152,7 +158,8 @@ fn main() -> ExitCode {
     // should be able to open a bundle without providing every required
     // variable via `--set`; force placeholder-mode for the manifest parse in
     // that case so undefined vars don't abort the flow.
-    let inspection_only = cli.validate || cli.list || cli.list_vars || cli.describe.is_some();
+    let inspection_only =
+        cli.validate || cli.list || cli.list_vars || cli.describe.is_some() || cli.graph;
     let effective_placeholder = cli.placeholder || inspection_only;
 
     // Dispatch: determine what kind of input we have and resolve it to a
@@ -314,6 +321,15 @@ fn main() -> ExitCode {
 
     if cli.list {
         inspect::print_list(&cfg.steps, cli.verbose);
+        return ExitCode::SUCCESS;
+    }
+
+    if cli.graph {
+        if cli.dot {
+            inspect::print_graph_dot(&cfg);
+        } else {
+            inspect::print_graph(&cfg);
+        }
         return ExitCode::SUCCESS;
     }
 
