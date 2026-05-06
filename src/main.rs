@@ -363,7 +363,7 @@ fn main() -> ExitCode {
     // drops at the end of main.
     if let Some(bctx) = runner.bundle.as_ref() {
         bctx.mark_success();
-        if bctx.will_keep_staging() {
+        if bctx.will_keep_staging() && cli.quiet < 1 {
             println!(
                 "{}",
                 style::render(&format!("<md>bundle staged at:</m> {}", bctx.root.display()))

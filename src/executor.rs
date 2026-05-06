@@ -180,7 +180,7 @@ impl Runner {
         }
 
         if step.meta.fallible {
-            println!("{indent}  {}", style::render(&format!("<fy>failed (fallible):</f> {err}")));
+            if self.quiet < 1 { println!("{indent}  {}", style::render(&format!("<fy>failed (fallible):</f> {err}"))); }
             return Ok(()); // don't run then
         }
         Err(err)
