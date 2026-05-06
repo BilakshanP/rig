@@ -87,7 +87,7 @@ Actions are nested objects with a `kind` discriminator. Steps can have an `id` f
 - **Markup validation** — io actions with `markup: true` are validated at parse time; invalid aml fails `--validate`.
 - **Cycle protection** — hard limit of 64 entries per step (not user-configurable).
 - **`depends-on`** — steps can declare prerequisites; resolved transitively with `--only`. Cycles rejected at parse time.
-- **Parallel execution** — `meta.parallel: true` or `--parallel` runs steps concurrently when `depends-on` allows. Steps at the same DAG level execute in threads.
+- **Parallel execution** — `meta.parallel: true` or `--parallel` runs steps concurrently when `depends-on` allows. Steps at the same DAG level execute in threads. `meta.parallel-output: true` interleaves step output in parallel mode.
 - **Tilde expansion** — `~` expands to home directory via `dirs` crate (cross-platform).
 - **Configurable shell** — `meta.shell` (global) and per-step `meta.shell` override the default shell. String shorthand (`"bash"`) or object `{ "cmd": "...", "args": [...] }`. Defaults to `sh -c` on Unix, `cmd /C` on Windows.
 - **Windows compatibility** — symlinks use platform APIs (clear error on permission failure), sudo is skipped with a warning, shell defaults to `cmd /C`.
@@ -128,6 +128,10 @@ rig <config-file> --list         # One-line summary of all steps
 rig <config-file> --describe <id>          # Describe a step in detail
 rig <config-file> --describe <id> --depth  # Expand sub-steps recursively
 rig <config-file> --describe <id> --depth 2  # Expand up to 2 levels
+rig <config-file> --graph      # Print the dependency graph (ASCII)
+rig <config-file> --dot        # Print the dependency graph (DOT format)
+rig <config-file> --edges      # Print the dependency graph (edge list)
+rig <config-file> --label      # Include step names as labels in graph output
 
 rig pack <dir> -o <file>.rig    # Build a .rig bundle from a directory
 rig unpack <file>.rig -o <dir>  # Extract a .rig bundle
@@ -194,4 +198,5 @@ on-disk directory named `{{name}}`.
 
 - Rust, serde + serde_json, clap (derive), json_comments, chrono, aml
 - Bundle I/O: tar + flate2, tempfile, globset
+- HTTP fetching: ureq; password input: rpassword; home dir: dirs
 - Single binary, no runtime deps

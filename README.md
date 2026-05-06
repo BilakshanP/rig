@@ -23,11 +23,16 @@ rig setup.json --dry-run    # Full audit — see everything before executing
 rig setup.json --validate   # Parse and validate only
 rig setup.json --only <id>  # Run a single step by ID
 rig setup.json --verbose    # Show suppressed output
-rig setup.json --parallel    # Run steps concurrently (DAG-ordered)
+rig setup.json --parallel   # Run steps concurrently (DAG-ordered)
 rig setup.json --list       # One-line summary of all steps
 rig setup.json --describe <id>          # Describe a step in detail
 rig setup.json --describe <id> --depth  # Expand sub-steps recursively
 rig setup.json --describe <id> --depth 2  # Expand up to 2 levels
+rig setup.json --graph      # Print the dependency graph (ASCII)
+rig setup.json --dot        # Print the dependency graph (DOT format)
+rig setup.json --edges      # Print the dependency graph (edge list)
+rig setup.json --label      # Include step names as labels in graph output
+rig setup.json --placeholder # Show unresolved variables as placeholders
 ```
 
 ### Output control
@@ -79,9 +84,10 @@ Configs are JSON or JSONC (comments supported). A config has a name, version, op
   "version": "1.0.0",
   "meta": {
     "retries": 2,                    // global default: retry failed steps twice
-    "log": "~/logs/{{name}}-{{timestamp}}.log",  // save run transcript
-    "env": { "CI": "true" }          // global env vars for all shell commands
+    "log": "~/logs/{{name}}-{{#timestamp}}.log", // save run transcript
+    "env": { "CI": "true" },         // global env vars for all shell commands
     "parallel": true,                // run steps concurrently when depends-on allows
+    "parallel-output": true,         // interleave step output in parallel mode
   },
   "steps": [
     {
@@ -292,7 +298,7 @@ Control execution behavior per step:
 }
 ```
 
-The `shell` field accepts a string shorthand (`"sh"`, `"bash"`, `"zsh"`, `"cmd"`, `"powershell"`, `"pwsh"`) or an object `{ "cmd": "...", "args": [...] }`. It can be set at the top-level `meta` (global default) or per-step (overrides global).
+The `shell` field accepts a string shorthand (`"sh"`, `"bash"`, `"zsh"`, `"fish"`, `"cmd"`, `"powershell"`, `"pwsh"`) or an object `{ "cmd": "...", "args": [...] }`. It can be set at the top-level `meta` (global default) or per-step (overrides global).
 
 ### depends-on
 

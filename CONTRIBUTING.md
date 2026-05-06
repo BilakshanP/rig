@@ -96,7 +96,7 @@ gh release create vX.Y.Z \
 - Integration tests: `tests/cli_bundle.rs` (exercises the compiled binary)
 - Validate examples: `cargo run -- examples/<file> --validate`
 
-All tests must pass on both Linux and Windows (CI runs both).
+All tests must pass on Linux, Windows, and macOS (CI runs all three).
 
 ## Code Style
 

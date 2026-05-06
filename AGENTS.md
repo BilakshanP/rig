@@ -6,15 +6,15 @@ Read `CONTEXT.md` first for full project context.
 
 - Fully implemented with `.rig` bundle format, manifest+templates, `expand` flag on fs actions, and bundle-aware `fs.copy` content rendering
 - Git repo URLs and local directories as input (shallow-clone + manifest lookup)
-- 151 tests passing (135 unit + 16 integration), clippy clean
+- 159 tests passing (136 unit + 23 integration), clippy clean
 - JSONC support via `json_comments` crate
 - Bundle I/O via `tar` + `flate2` + `tempfile` + `globset`
+- HTTP fetching via `ureq`, password input via `rpassword`, home dir via `dirs`
 
 ## File Structure
 
 ```
 schema.json       — JSON Schema (draft-07) for editor validation/autocompletion
-setup.json        — Sample config referencing schema.json
 examples/
   dev-env.jsonc      — Annotated example with all features
   bootstrap.jsonc    — Example: install Rust, clone repo, build rig
@@ -32,7 +32,7 @@ src/
   bundle.rs       — .rig archive format: pack/unpack/info, open_bundle, open_directory,
                     open_git_repo, looks_like_git_repo, clone_repo, BundleCtx + Drop-based
                     cleanup, BinaryMatcher (globset)
-  inspect.rs      — --list and --describe display logic
+  inspect.rs      — --list, --describe, and --graph/--dot/--edges display logic
   vars.rs         — Variable system: VarRef parser, Scope (with #bundle), substitution with
                     {{{{...}}}} escape
   path.rs         — tilde expansion helper
@@ -70,7 +70,7 @@ tests/
 - `BundleMeta` (in `bundle.rs`) — `extract_to: ExtractTo`, `cleanup: Cleanup`, `binary: Vec<String>` (globset patterns)
 - `ExtractTo` — `Named(Tmp | Cwd | Home)` or `Custom { path: String }`; default `Named(Tmp)`
 - `Cleanup` — `Always`, `OnSuccess` (default), `Never`
-- `BundleCtx` (runtime) — `root: PathBuf`, `binary: BinaryMatcher` (globset wrapper), `cleanup`, `succeeded: Cell<bool>`, `_temp_dir: Option<tempfile::TempDir>`. `Drop` impl honors the cleanup policy.
+- `BundleCtx` (runtime) — `root: PathBuf`, `binary: BinaryMatcher` (globset wrapper), `cleanup`, `succeeded: AtomicBool`, `_temp_dir: Option<tempfile::TempDir>`. `Drop` impl honors the cleanup policy.
 - `Scope` (in `vars.rs`) — runtime variable store with dot-path keys; resolves `#` built-ins (`#timestamp`, `#now`, `#pwd`, `#bundle`) and `@`-mutables. `bundle_root: Option<String>` populated via `set_bundle_root`.
 - `VarRef` (in `vars.rs`) — parsed `{{...}}` expression: `prefix` (#/@/none), `path` (segments), optional `format`.
 
