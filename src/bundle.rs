@@ -111,7 +111,7 @@ pub struct BundleCtx {
     pub cleanup: Cleanup,
     /// Whether to remove `root` on Drop. The runner flips this to `true` on
     /// a successful run (honored only when `cleanup == OnSuccess`).
-    pub(crate) succeeded: std::cell::Cell<bool>,
+    pub(crate) succeeded: std::sync::atomic::AtomicBool,
     /// When the staging dir was created via `tempfile::TempDir`, we hold it
     /// here so it isn't auto-cleaned before our Drop impl runs. Actual
     /// cleanup still goes through the `Drop` logic below so the policy is
@@ -123,7 +123,8 @@ impl BundleCtx {
     /// Record that the bundle run succeeded; honored on drop when the
     /// cleanup policy is `OnSuccess`.
     pub fn mark_success(&self) {
-        self.succeeded.set(true);
+        self.succeeded
+            .store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Whether the ctx will delete its staging dir on drop, given the
@@ -133,7 +134,7 @@ impl BundleCtx {
         match self.cleanup {
             Cleanup::Always => false,
             Cleanup::Never => true,
-            Cleanup::OnSuccess => !self.succeeded.get(),
+            Cleanup::OnSuccess => !self.succeeded.load(std::sync::atomic::Ordering::Relaxed),
         }
     }
 }
@@ -523,7 +524,7 @@ pub fn open_bundle(
         root,
         binary,
         cleanup,
-        succeeded: std::cell::Cell::new(false),
+        succeeded: std::sync::atomic::AtomicBool::new(false),
         _temp_dir: temp_dir,
     };
     Ok((cfg, ctx))
@@ -698,7 +699,7 @@ pub fn open_directory(
         root,
         binary,
         cleanup: Cleanup::Never,
-        succeeded: std::cell::Cell::new(false),
+        succeeded: std::sync::atomic::AtomicBool::new(false),
         _temp_dir: None,
     };
     Ok((cfg, ctx))
@@ -740,7 +741,7 @@ pub fn open_git_repo(
         root,
         binary,
         cleanup,
-        succeeded: std::cell::Cell::new(false),
+        succeeded: std::sync::atomic::AtomicBool::new(false),
         _temp_dir: Some(td),
     };
     Ok((cfg, ctx))

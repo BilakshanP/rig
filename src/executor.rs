@@ -34,7 +34,7 @@ impl From<std::io::Error> for ExecError {
     }
 }
 
-use std::cell::RefCell;
+use std::sync::Mutex;
 
 pub struct Runner {
     pub index: HashMap<String, Step>,
@@ -43,13 +43,13 @@ pub struct Runner {
     pub quiet: u8,
     pub cli_silent: bool,
     pub config_meta: Meta,
-    pub scope: RefCell<crate::vars::Scope>,
+    pub scope: Mutex<crate::vars::Scope>,
     /// Present when we're running from a `.rig` bundle: carries the staging
     /// root + binary matcher + cleanup policy so `fs.copy` can render file
     /// contents when the source lives inside the bundle.
     pub bundle: Option<crate::bundle::BundleCtx>,
-    log_file: RefCell<Option<std::fs::File>>,
-    entry_counts: RefCell<HashMap<String, u32>>,
+    log_file: Mutex<Option<std::fs::File>>,
+    entry_counts: Mutex<HashMap<String, u32>>,
 }
 
 impl Runner {
@@ -103,10 +103,10 @@ impl Runner {
             quiet: 0,
             cli_silent: false,
             config_meta,
-            scope: RefCell::new(scope),
+            scope: Mutex::new(scope),
             bundle,
-            log_file: RefCell::new(log_file),
-            entry_counts: RefCell::new(HashMap::new()),
+            log_file: Mutex::new(log_file),
+            entry_counts: Mutex::new(HashMap::new()),
         }
     }
 
@@ -198,11 +198,36 @@ impl Runner {
         while !queue.is_empty() {
             let level: Vec<&str> = queue.drain(..).collect();
 
-            for &id in &level {
-                if let Some(step) = id_steps.get(id) {
-                    self.run_step(step, 0)?;
+            // Run all steps in this level concurrently
+            let errors: Mutex<Vec<String>> = Mutex::new(Vec::new());
+            std::thread::scope(|scope| {
+                let handles: Vec<_> = level
+                    .iter()
+                    .filter_map(|&id| id_steps.get(id).map(|step| (id, *step)))
+                    .map(|(id, step)| {
+                        scope.spawn(move || {
+                            let result = self.run_step(step, 0);
+                            (id, result)
+                        })
+                    })
+                    .collect();
+
+                for handle in handles {
+                    let (id, result) = handle.join().unwrap();
+                    completed.insert(id);
+                    if let Err(e) = result {
+                        if let Some(step) = id_steps.get(id) {
+                            if !step.meta.fallible {
+                                errors.lock().unwrap().push(format!("{e}"));
+                            }
+                        }
+                    }
                 }
-                completed.insert(id);
+            });
+
+            let errs = errors.lock().unwrap();
+            if !errs.is_empty() {
+                return Err(ExecError::Command(errs.join("; ")));
             }
 
             // Find next level
@@ -278,7 +303,7 @@ impl Runner {
 
         // Hard cycle limit
         if let Some(id) = &step.id {
-            let mut counts = self.entry_counts.borrow_mut();
+            let mut counts = self.entry_counts.lock().unwrap();
             let count = counts.entry(id.clone()).or_insert(0);
             *count += 1;
             if *count > MAX_ENTRIES {
@@ -411,7 +436,7 @@ impl Runner {
     /// Execute an action, returning the exit code (0 for non-shell actions on success).
     /// Substitute runtime vars in a string using the current scope.
     pub fn subst(&self, s: &str) -> String {
-        self.scope.borrow().substitute(s)
+        self.scope.lock().unwrap().substitute(s)
     }
 
     /// Resolve the effective ShellConfig: step-level overrides config-level, falls back to platform default.
@@ -548,7 +573,7 @@ impl Runner {
 
     fn write_log(&self, msg: &str) {
         use std::io::Write;
-        if let Some(f) = self.log_file.borrow_mut().as_mut() {
+        if let Some(f) = self.log_file.lock().unwrap().as_mut() {
             let _ = writeln!(f, "{msg}");
         }
     }
@@ -556,7 +581,7 @@ impl Runner {
     fn write_log_bytes(&self, data: &[u8]) {
         use std::io::Write;
         if !data.is_empty()
-            && let Some(f) = self.log_file.borrow_mut().as_mut()
+            && let Some(f) = self.log_file.lock().unwrap().as_mut()
         {
             let _ = f.write_all(data);
         }
@@ -648,7 +673,7 @@ impl Runner {
                 let value = String::from_utf8_lossy(&output.stdout)
                     .trim_end_matches('\n')
                     .to_string();
-                self.scope.borrow_mut().set(&key, value.clone());
+                self.scope.lock().unwrap().set(&key, value.clone());
                 println!(
                     "{indent}  {}",
                     style::render(&format!("<fg>set</f> <mb>{key}</m> = {value:?}"))
@@ -660,7 +685,7 @@ impl Runner {
                     .map_err(|id| ExecError::StepNotFound(id.into()))?;
                 let output = self.capture_step_stdout(&step)?;
                 let value = output.trim_end_matches('\n').to_string();
-                self.scope.borrow_mut().set(&key, value.clone());
+                self.scope.lock().unwrap().set(&key, value.clone());
                 println!(
                     "{indent}  {}",
                     style::render(&format!(
@@ -673,7 +698,8 @@ impl Runner {
                 // Feed the variable's current value as stdin to the referenced step.
                 let value = self
                     .scope
-                    .borrow()
+                    .lock()
+                    .unwrap()
                     .get(&key)
                     .map(|s| s.to_string())
                     .ok_or_else(|| ExecError::Command(format!("var '{key}' is not set")))?;
@@ -690,7 +716,7 @@ impl Runner {
                 let contents = std::fs::read_to_string(&path).map_err(|e| {
                     ExecError::Command(format!("failed to read {}: {e}", path.display()))
                 })?;
-                self.scope.borrow_mut().set(&key, contents);
+                self.scope.lock().unwrap().set(&key, contents);
                 println!(
                     "{indent}  {}",
                     style::render(&format!(
@@ -743,7 +769,7 @@ impl Runner {
     ) -> Result<(), ExecError> {
         let file = self.subst(file);
         // Build cli_vars: parent scope values + set overrides (substituted)
-        let mut cli_vars: HashMap<String, String> = self.scope.borrow().all_values();
+        let mut cli_vars: HashMap<String, String> = self.scope.lock().unwrap().all_values();
         if let Some(s) = set {
             for (k, v) in s {
                 cli_vars.insert(k.clone(), self.subst(v));
@@ -884,7 +910,7 @@ impl Runner {
 
     fn io_write(&self, level: &IoLevel, message: &str, markup: bool, indent: &str) {
         // Use the colorized substitution so unresolved @vars stand out in the terminal.
-        let message_display = self.scope.borrow().substitute_display(message);
+        let message_display = self.scope.lock().unwrap().substitute_display(message);
         // For log file and fallback text, use plain substitution.
         let message_plain = self.subst(message);
         let text = if markup {
@@ -946,7 +972,7 @@ impl Runner {
 
         if self.dry_run {
             if let Some(d) = default {
-                self.scope.borrow_mut().set(&key, d.to_string());
+                self.scope.lock().unwrap().set(&key, d.to_string());
                 println!("{indent}  [dry-run] read {key} = {d:?} (default)");
             } else {
                 println!("{indent}  [dry-run] read {key} (no input in dry-run; unset)");
@@ -1002,7 +1028,7 @@ impl Runner {
         } else {
             format!("{value:?}")
         };
-        self.scope.borrow_mut().set(&key, value);
+        self.scope.lock().unwrap().set(&key, value);
         println!(
             "{indent}  {}",
             style::render(&format!("<fg>read</f> <mb>{key}</m> = {display}"))
@@ -2433,7 +2459,7 @@ mod tests {
             root: dir.to_path_buf(),
             binary: crate::bundle::BinaryMatcher::new(&patterns).unwrap(),
             cleanup: crate::bundle::Cleanup::Never,
-            succeeded: std::cell::Cell::new(false),
+            succeeded: std::sync::atomic::AtomicBool::new(false),
             _temp_dir: None,
         }
     }
