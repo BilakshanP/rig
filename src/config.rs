@@ -540,6 +540,7 @@ pub enum ConfigError {
     UnknownRef(String),
     UndefinedVar(String),
     InvalidMarkup(String, String),
+    DependsCycle(String),
 }
 
 impl fmt::Display for ConfigError {
@@ -553,6 +554,7 @@ impl fmt::Display for ConfigError {
             Self::InvalidMarkup(step, msg) => {
                 write!(f, "invalid aml markup in step '{step}': {msg}")
             }
+            Self::DependsCycle(id) => write!(f, "dependency cycle detected involving step '{id}'"),
         }
     }
 }
@@ -587,6 +589,7 @@ pub fn parse_config(
     let config: Config = serde_json::from_str(&json)?;
     validate_unique_ids(&config)?;
     validate_refs(&config)?;
+    validate_depends_on_cycles(&config)?;
     validate_markup(&config)?;
     validate_vars(&config, cli_vars, placeholder)?;
     Ok(config)
@@ -999,6 +1002,51 @@ fn visit_step_refs(
         }
     }
     Ok(())
+}
+
+fn validate_depends_on_cycles(config: &Config) -> Result<(), ConfigError> {
+    // Build adjacency: id -> list of dependency ids
+    let mut deps: HashMap<String, Vec<String>> = HashMap::new();
+    for step in &config.steps {
+        if let Some(id) = &step.id {
+            deps.insert(id.clone(), step.depends_on.clone());
+        }
+    }
+    // DFS cycle detection
+    let mut visited = std::collections::HashSet::new();
+    let mut stack = std::collections::HashSet::new();
+    let ids: Vec<String> = deps.keys().cloned().collect();
+    for id in &ids {
+        if !visited.contains(id) {
+            if let Some(cycle_id) = dfs_cycle(id, &deps, &mut visited, &mut stack) {
+                return Err(ConfigError::DependsCycle(cycle_id));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn dfs_cycle(
+    node: &str,
+    deps: &HashMap<String, Vec<String>>,
+    visited: &mut std::collections::HashSet<String>,
+    stack: &mut std::collections::HashSet<String>,
+) -> Option<String> {
+    visited.insert(node.to_string());
+    stack.insert(node.to_string());
+    if let Some(neighbors) = deps.get(node) {
+        for dep in neighbors {
+            if !visited.contains(dep) {
+                if let Some(id) = dfs_cycle(dep, deps, visited, stack) {
+                    return Some(id);
+                }
+            } else if stack.contains(dep) {
+                return Some(node.to_string());
+            }
+        }
+    }
+    stack.remove(node);
+    None
 }
 
 fn validate_markup(config: &Config) -> Result<(), ConfigError> {
