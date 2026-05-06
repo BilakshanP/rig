@@ -29,6 +29,17 @@ rig setup.json --describe <id> --depth  # Expand sub-steps recursively
 rig setup.json --describe <id> --depth 2  # Expand up to 2 levels
 ```
 
+### Output control
+
+| Flags | Chrome | Command output | io messages | Errors |
+|-------|--------|---------------|-------------|--------|
+| (default) | ✓ | ✓ | ✓ | ✓ |
+| `-s` | ✓ | ✗ | ✓ | ✓ |
+| `-q` | ✗ | ✓ | ✓ | ✓ |
+| `-q -s` | ✗ | ✗ | ✓ | ✓ |
+| `-qq` | ✗ | ✗ | ✗ | ✓ |
+| `-qqq` | ✗ | ✗ | ✗ | ✗ |
+
 Configs and bundles can also be loaded from URLs, git repos, or local directories:
 
 ```bash
