@@ -677,16 +677,13 @@ pub fn open_directory(
         .map(|b| b.binary.clone())
         .unwrap_or_default();
     let binary = BinaryMatcher::new(&binary_patterns)?;
-    let cleanup = cfg
-        .bundle
-        .as_ref()
-        .map(|b| b.cleanup)
-        .unwrap_or_default();
 
+    // Never delete the source directory — it's the user's actual files,
+    // not a staging dir we created.
     let ctx = BundleCtx {
         root,
         binary,
-        cleanup,
+        cleanup: Cleanup::Never,
         succeeded: std::cell::Cell::new(false),
         _temp_dir: None,
     };
