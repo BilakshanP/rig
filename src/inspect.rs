@@ -556,7 +556,9 @@ impl GraphOpts {
     fn include(&self, label: &str) -> bool {
         match &self.edges {
             None => true,
-            Some(filter) => filter.iter().any(|f| label.starts_with(f.as_str())),
+            Some(filter) => filter
+                .iter()
+                .any(|f| f == "all" || label.starts_with(f.as_str())),
         }
     }
 }
@@ -622,10 +624,10 @@ pub fn print_graph_dot(cfg: &crate::config::Config, opts: &GraphOpts) {
 
     for e in &edges {
         let style = match e.label.as_str() {
-            "seq" => "style=dotted",
-            "depends-on" => "style=bold",
-            "then" => "style=solid",
-            _ => "style=dashed",
+            "seq" => "style=solid",
+            "then" => "style=bold",
+            "depends-on" => "style=dashed",
+            _ => "style=dotted",
         };
         if opts.label {
             println!(

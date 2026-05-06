@@ -1,68 +1,119 @@
-// CI/CD pipeline demonstrating depends-on, then, and handlers as a DAG.
+// CI/CD pipeline demonstrating the full execution graph:
+// depends-on, then, on-success, on-failure, on-return, and sequential flow.
 //
-//   rig examples/dag-pipeline.jsonc --graph
-//   rig examples/dag-pipeline.jsonc --graph --dot | dot -Tsvg > pipeline.svg
-//   rig examples/dag-pipeline.jsonc --only deploy
+// Graph visualization:
+//   rig examples/dag-pipeline.jsonc --graph                              # explicit edges (no seq)
+//   rig examples/dag-pipeline.jsonc --graph --label                      # with edge type labels
+//   rig examples/dag-pipeline.jsonc --graph --edges depends-on --label   # only dependency edges
+//   rig examples/dag-pipeline.jsonc --graph --edges seq,depends-on       # include sequential flow
+//   rig examples/dag-pipeline.jsonc --graph --edges on-failure,on-success,on-return --label
+//   rig examples/dag-pipeline.jsonc --graph --dot --label | dot -Tsvg > pipeline.svg
+//
+// Execution:
+//   rig examples/dag-pipeline.jsonc --only deploy    # runs full dependency chain
+//   rig examples/dag-pipeline.jsonc                  # runs all non-optional steps sequentially
 {
     "$schema": "../schema.json",
     "name": "ci-pipeline",
     "version": "1.0.0",
-    "meta": { "vars": { "branch": "main" } },
+    "meta": {
+        "vars": { "branch": "main", "env": "staging" }
+    },
     "steps": [
         {
             "id": "checkout",
             "name": "Checkout",
-            "action": { "kind": "shell", "commands": ["echo 'checkout {{branch}}'"] }
+            "action": { "kind": "shell", "commands": ["echo 'checkout {{branch}}'"] },
+            "then": ["setup-cache"]
+        },
+        {
+            "id": "setup-cache",
+            "name": "Restore cache",
+            "action": { "kind": "shell", "commands": ["echo 'restoring build cache'"] },
+            "meta": { "optional": true, "fallible": true }
         },
         {
             "id": "build",
             "name": "Build",
             "depends-on": ["checkout"],
-            "action": { "kind": "shell", "commands": ["echo 'building...'"] }
+            "action": { "kind": "shell", "commands": ["echo 'building...'"] },
+            "on-failure": "notify-failure",
+            "on-return": { "2": "out-of-memory" }
         },
         {
             "id": "unit-tests",
             "name": "Unit tests",
             "depends-on": ["build"],
-            "action": { "kind": "shell", "commands": ["echo 'unit tests'"] },
-            "on-failure": "notify"
+            "action": { "kind": "shell", "commands": ["echo 'unit tests pass'"] },
+            "on-failure": "notify-failure",
+            "then": ["coverage"]
+        },
+        {
+            "id": "coverage",
+            "name": "Upload coverage",
+            "action": { "kind": "shell", "commands": ["echo 'coverage uploaded'"] },
+            "meta": { "optional": true, "fallible": true }
         },
         {
             "id": "lint",
             "name": "Lint",
             "depends-on": ["build"],
-            "action": { "kind": "shell", "commands": ["echo 'linting'"] }
+            "action": { "kind": "shell", "commands": ["echo 'linting'"] },
+            "on-failure": "notify-failure"
         },
         {
             "id": "security-scan",
             "name": "Security scan",
             "depends-on": ["checkout"],
-            "action": { "kind": "shell", "commands": ["echo 'scanning'"] }
+            "action": { "kind": "shell", "commands": ["echo 'scanning'"] },
+            "on-failure": "notify-failure",
+            "on-return": { "1": "security-alert" }
         },
         {
             "id": "integration",
             "name": "Integration tests",
             "depends-on": ["unit-tests", "lint", "security-scan"],
-            "action": { "kind": "shell", "commands": ["echo 'integration'"] },
-            "then": ["report"]
+            "action": { "kind": "shell", "commands": ["echo 'integration tests'"] },
+            "on-success": "notify-success",
+            "on-failure": "notify-failure"
         },
         {
             "id": "deploy",
             "name": "Deploy",
             "depends-on": ["integration"],
-            "action": { "kind": "shell", "commands": ["echo 'deploying {{branch}}'"] },
-            "on-success": "notify"
+            "action": { "kind": "shell", "commands": ["echo 'deploying {{branch}} to {{env}}'"] },
+            "on-success": "notify-success",
+            "on-failure": "rollback"
         },
         {
-            "id": "notify",
-            "name": "Notify team",
-            "action": { "kind": "io", "level": "info", "message": "Pipeline complete for {{branch}}" },
+            "id": "rollback",
+            "name": "Rollback deployment",
+            "action": { "kind": "shell", "commands": ["echo 'rolling back!'"] },
+            "meta": { "optional": true },
+            "then": ["notify-failure"]
+        },
+        {
+            "id": "notify-success",
+            "name": "Notify success",
+            "action": { "kind": "io", "level": "info", "message": "Pipeline succeeded for {{branch}}" },
             "meta": { "optional": true }
         },
         {
-            "id": "report",
-            "name": "Generate report",
-            "action": { "kind": "shell", "commands": ["echo 'report generated'"] },
+            "id": "notify-failure",
+            "name": "Notify failure",
+            "action": { "kind": "io", "level": "error", "message": "Pipeline FAILED for {{branch}}" },
+            "meta": { "optional": true }
+        },
+        {
+            "id": "security-alert",
+            "name": "Security alert",
+            "action": { "kind": "io", "level": "warn", "message": "Security vulnerability found!" },
+            "meta": { "optional": true }
+        },
+        {
+            "id": "out-of-memory",
+            "name": "OOM handler",
+            "action": { "kind": "io", "level": "error", "message": "Build ran out of memory" },
             "meta": { "optional": true }
         }
     ]
