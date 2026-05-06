@@ -1433,23 +1433,18 @@ impl Runner {
     /// during an `fs.copy`.
     ///
     /// See the rule table in `fs_copy` for the semantics.
-    fn should_render_contents(&self, src: &std::path::Path, contents_flag: bool) -> bool {
+    fn should_render_contents(&self, src: &std::path::Path, _contents_flag: bool) -> bool {
         let Some(ctx) = self.bundle.as_ref() else {
-            return false; // No bundle → legacy byte-exact copy.
+            return false; // No bundle → byte-exact copy.
         };
         let Some(rel) = src.strip_prefix(&ctx.root).ok() else {
-            return false; // src lives outside the bundle; treat as normal fs.
+            return false; // src lives outside the bundle; byte-exact.
         };
         if ctx.binary.matches(rel) {
-            return false;
+            return false; // binary-glob matched → byte-exact.
         }
-        // Inside the bundle + not binary → render. `contents_flag` can only
-        // force it on (the default is already "yes" inside a bundle).
-        // When contents_flag is explicitly false via `expand: false` shorthand
-        // or `expand: {contents: false}` this still returns true unless the
-        // file is binary-matched; users who need byte-exact bundles should
-        // list the path in `bundle.binary`.
-        let _ = contents_flag;
+        // Inside the bundle + not binary → render templated contents.
+        // To skip rendering for specific files, add them to `bundle.binary`.
         true
     }
 
