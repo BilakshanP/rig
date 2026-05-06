@@ -139,6 +139,53 @@ fn fetch_url(url: &str) -> Result<std::path::PathBuf, String> {
     Ok(tmp)
 }
 
+/// Resolve the raw input (path, URL, git repo, directory, or .rig bundle) into
+/// a config file path and an optional BundleCtx.
+fn resolve_input(
+    raw: &str,
+    vars: &HashMap<String, String>,
+    placeholder: bool,
+) -> Result<(String, Option<bundle::BundleCtx>), String> {
+    let is_url = raw.starts_with("http://") || raw.starts_with("https://");
+    let is_git_ssh = raw.starts_with("git@") || raw.starts_with("ssh://");
+    let is_local_dir = !is_url && !is_git_ssh && std::path::Path::new(raw).is_dir();
+
+    if is_local_dir {
+        let (_cfg, ctx) = bundle::open_directory(std::path::Path::new(raw), vars, placeholder)
+            .map_err(|e| e.to_string())?;
+        Ok(manifest_from_ctx(ctx))
+    } else if is_git_ssh || (is_url && bundle::looks_like_git_repo(raw)) {
+        let (_cfg, ctx) =
+            bundle::open_git_repo(raw, vars, placeholder).map_err(|e| e.to_string())?;
+        Ok(manifest_from_ctx(ctx))
+    } else if is_url {
+        let p = fetch_url(raw)?;
+        if bundle::looks_like_bundle(&p) {
+            let (_cfg, ctx) =
+                bundle::open_bundle(&p, vars, placeholder).map_err(|e| e.to_string())?;
+            Ok(manifest_from_ctx(ctx))
+        } else {
+            Ok((p.to_string_lossy().into_owned(), None))
+        }
+    } else if bundle::looks_like_bundle(std::path::Path::new(raw)) {
+        let (_cfg, ctx) = bundle::open_bundle(std::path::Path::new(raw), vars, placeholder)
+            .map_err(|e| e.to_string())?;
+        Ok(manifest_from_ctx(ctx))
+    } else {
+        Ok((raw.to_string(), None))
+    }
+}
+
+/// Extract the manifest path from a BundleCtx (prefers .jsonc over .json).
+fn manifest_from_ctx(ctx: bundle::BundleCtx) -> (String, Option<bundle::BundleCtx>) {
+    let manifest = if ctx.root.join("manifest.jsonc").is_file() {
+        ctx.root.join("manifest.jsonc")
+    } else {
+        ctx.root.join("manifest.json")
+    };
+    (manifest.to_string_lossy().into_owned(), Some(ctx))
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
@@ -176,107 +223,14 @@ fn main() -> ExitCode {
 
     // Dispatch: determine what kind of input we have and resolve it to a
     // config path + optional BundleCtx.
-    let mut bundle_ctx: Option<bundle::BundleCtx> = None;
-    let config_path: String;
-
-    let is_url = raw_config.starts_with("http://") || raw_config.starts_with("https://");
-    let is_git_ssh = raw_config.starts_with("git@") || raw_config.starts_with("ssh://");
-    let is_local_dir = !is_url && !is_git_ssh && std::path::Path::new(&raw_config).is_dir();
-
-    if is_local_dir {
-        // Local directory → look for manifest and treat as bundle source.
-        match bundle::open_directory(
-            std::path::Path::new(&raw_config),
-            &vars,
-            effective_placeholder,
-        ) {
-            Ok((_cfg, ctx)) => {
-                let manifest = if ctx.root.join("manifest.jsonc").is_file() {
-                    ctx.root.join("manifest.jsonc")
-                } else {
-                    ctx.root.join("manifest.json")
-                };
-                config_path = manifest.to_string_lossy().into_owned();
-                bundle_ctx = Some(ctx);
-            }
+    let (config_path, mut bundle_ctx) =
+        match resolve_input(&raw_config, &vars, effective_placeholder) {
+            Ok(resolved) => resolved,
             Err(e) => {
                 eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
                 return ExitCode::FAILURE;
             }
-        }
-    } else if is_git_ssh || (is_url && bundle::looks_like_git_repo(&raw_config)) {
-        // Git repo URL → clone and treat as bundle source.
-        match bundle::open_git_repo(&raw_config, &vars, effective_placeholder) {
-            Ok((_cfg, ctx)) => {
-                let manifest = if ctx.root.join("manifest.jsonc").is_file() {
-                    ctx.root.join("manifest.jsonc")
-                } else {
-                    ctx.root.join("manifest.json")
-                };
-                config_path = manifest.to_string_lossy().into_owned();
-                bundle_ctx = Some(ctx);
-            }
-            Err(e) => {
-                eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
-                return ExitCode::FAILURE;
-            }
-        }
-    } else if is_url {
-        // Regular URL → fetch file.
-        match fetch_url(&raw_config) {
-            Ok(p) => {
-                let fetched = p.to_string_lossy().into_owned();
-                // Check if fetched file is a bundle.
-                if bundle::looks_like_bundle(&p) {
-                    match bundle::open_bundle(&p, &vars, effective_placeholder) {
-                        Ok((_cfg, ctx)) => {
-                            let manifest = if ctx.root.join("manifest.jsonc").is_file() {
-                                ctx.root.join("manifest.jsonc")
-                            } else {
-                                ctx.root.join("manifest.json")
-                            };
-                            config_path = manifest.to_string_lossy().into_owned();
-                            bundle_ctx = Some(ctx);
-                        }
-                        Err(e) => {
-                            eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
-                            return ExitCode::FAILURE;
-                        }
-                    }
-                } else {
-                    config_path = fetched;
-                }
-            }
-            Err(e) => {
-                eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
-                return ExitCode::FAILURE;
-            }
-        }
-    } else if bundle::looks_like_bundle(std::path::Path::new(&raw_config)) {
-        // Local .rig bundle archive.
-        match bundle::open_bundle(
-            std::path::Path::new(&raw_config),
-            &vars,
-            effective_placeholder,
-        ) {
-            Ok((_cfg, ctx)) => {
-                let manifest = if ctx.root.join("manifest.jsonc").is_file() {
-                    ctx.root.join("manifest.jsonc")
-                } else {
-                    ctx.root.join("manifest.json")
-                };
-                config_path = manifest.to_string_lossy().into_owned();
-                bundle_ctx = Some(ctx);
-            }
-            Err(e) => {
-                eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
-                return ExitCode::FAILURE;
-            }
-        }
-    } else {
-        // Plain local config file.
-        config_path = raw_config.clone();
-    };
+        };
 
     if cli.list_vars {
         let referenced = match config::scan_vars(&config_path) {
