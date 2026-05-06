@@ -544,9 +544,29 @@ fn collect_edges(cfg: &crate::config::Config) -> Vec<Edge> {
     edges
 }
 
+/// Options for graph rendering.
+pub struct GraphOpts {
+    /// If Some, only include edges whose label matches one of these.
+    pub edges: Option<Vec<String>>,
+    /// Whether to show labels on edges.
+    pub label: bool,
+}
+
+impl GraphOpts {
+    fn include(&self, label: &str) -> bool {
+        match &self.edges {
+            None => true,
+            Some(filter) => filter.iter().any(|f| label.starts_with(f.as_str())),
+        }
+    }
+}
+
 /// Print the execution graph as ASCII.
-pub fn print_graph(cfg: &crate::config::Config) {
-    let edges = collect_edges(cfg);
+pub fn print_graph(cfg: &crate::config::Config, opts: &GraphOpts) {
+    let edges: Vec<_> = collect_edges(cfg)
+        .into_iter()
+        .filter(|e| opts.include(&e.label))
+        .collect();
 
     println!(
         "{}",
@@ -554,7 +574,6 @@ pub fn print_graph(cfg: &crate::config::Config) {
     );
     println!();
 
-    // Print nodes with outgoing edges grouped
     let mut by_source: HashMap<String, Vec<(&str, &str)>> = HashMap::new();
     for e in &edges {
         by_source
@@ -569,21 +588,25 @@ pub fn print_graph(cfg: &crate::config::Config) {
             .clone()
             .unwrap_or_else(|| format!("[{}]", step.name));
         let display = step.id.as_deref().unwrap_or(&step.name);
-        print!("  {}", style::render(&format!("<fc>{display}</f>")));
+        println!("  {}", style::render(&format!("<fc>{display}</f>")));
         if let Some(targets) = by_source.get(&id) {
-            println!();
             for (to, label) in targets {
-                println!("    {to} ({label})");
+                if opts.label {
+                    println!("    {to} ({label})");
+                } else {
+                    println!("    {to}");
+                }
             }
-        } else {
-            println!();
         }
     }
 }
 
 /// Print the execution graph in Graphviz DOT format.
-pub fn print_graph_dot(cfg: &crate::config::Config) {
-    let edges = collect_edges(cfg);
+pub fn print_graph_dot(cfg: &crate::config::Config, opts: &GraphOpts) {
+    let edges: Vec<_> = collect_edges(cfg)
+        .into_iter()
+        .filter(|e| opts.include(&e.label))
+        .collect();
 
     println!("digraph \"{}\" {{", cfg.name);
     println!("    rankdir=LR;");
@@ -604,10 +627,14 @@ pub fn print_graph_dot(cfg: &crate::config::Config) {
             "then" => "style=solid",
             _ => "style=dashed",
         };
-        println!(
-            "    \"{}\" -> \"{}\" [label=\"{}\", {}];",
-            e.from, e.to, e.label, style
-        );
+        if opts.label {
+            println!(
+                "    \"{}\" -> \"{}\" [label=\"{}\", {}];",
+                e.from, e.to, e.label, style
+            );
+        } else {
+            println!("    \"{}\" -> \"{}\" [{}];", e.from, e.to, style);
+        }
     }
 
     println!("}}");

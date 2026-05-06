@@ -63,6 +63,12 @@ struct Cli {
     /// Output in DOT format (use with --graph)
     #[arg(long)]
     dot: bool,
+    /// Filter edge types in graph (comma-separated: seq,depends-on,then,on-success,on-failure,on-return)
+    #[arg(long, value_delimiter = ',')]
+    edges: Vec<String>,
+    /// Show edge labels in graph output
+    #[arg(long)]
+    label: bool,
     /// Set a variable: --set key=value (repeatable, used as {{key}} in config)
     #[arg(long = "set", value_name = "KEY=VALUE")]
     set_vars: Vec<String>,
@@ -325,10 +331,18 @@ fn main() -> ExitCode {
     }
 
     if cli.graph {
+        let opts = inspect::GraphOpts {
+            edges: if cli.edges.is_empty() {
+                None
+            } else {
+                Some(cli.edges.clone())
+            },
+            label: cli.label,
+        };
         if cli.dot {
-            inspect::print_graph_dot(&cfg);
+            inspect::print_graph_dot(&cfg, &opts);
         } else {
-            inspect::print_graph(&cfg);
+            inspect::print_graph(&cfg, &opts);
         }
         return ExitCode::SUCCESS;
     }
