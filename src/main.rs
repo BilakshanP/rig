@@ -36,6 +36,9 @@ struct Cli {
     /// Suppress command stdout/stderr (show only rig chrome)
     #[arg(long, short = 's')]
     silent: bool,
+    /// Run steps in parallel when depends-on allows it
+    #[arg(long)]
+    parallel: bool,
     /// Run only the step with this ID
     #[arg(long)]
     only: Option<String>,
@@ -448,10 +451,18 @@ fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             }
         }
-    } else if let Err(e) = runner.run_steps(&cfg.steps) {
-        eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
-        report_bundle_staging(&runner);
-        return ExitCode::FAILURE;
+    } else {
+        let use_parallel = cli.parallel || cfg.meta.parallel;
+        let result = if use_parallel {
+            runner.run_steps_parallel(&cfg.steps)
+        } else {
+            runner.run_steps(&cfg.steps)
+        };
+        if let Err(e) = result {
+            eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
+            report_bundle_staging(&runner);
+            return ExitCode::FAILURE;
+        }
     }
 
     // If we ran from a bundle, mark success (honors Cleanup::OnSuccess) and

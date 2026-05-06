@@ -42,9 +42,23 @@ pub struct Meta {
     /// Global env vars applied to all shell commands. Step-level env merges with/overrides these.
     #[serde(default)]
     pub env: Option<HashMap<String, String>>,
+    /// Enable parallel execution of steps with satisfied depends-on.
+    #[serde(default)]
+    pub parallel: bool,
+    /// Output mode for parallel execution: "buffered" (default) or "realtime".
+    #[serde(default, rename = "parallel-output")]
+    pub parallel_output: ParallelOutput,
     /// Raw vars tree. May contain nested objects; flattened into dot-path keys at runtime.
     #[serde(default)]
     pub vars: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ParallelOutput {
+    #[default]
+    Buffered,
+    Realtime,
 }
 
 // -- Shell config --
