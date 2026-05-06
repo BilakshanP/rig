@@ -215,12 +215,11 @@ impl Runner {
                 for handle in handles {
                     let (id, result) = handle.join().unwrap();
                     completed.insert(id);
-                    if let Err(e) = result {
-                        if let Some(step) = id_steps.get(id) {
-                            if !step.meta.fallible {
-                                errors.lock().unwrap().push(format!("{e}"));
-                            }
-                        }
+                    if let Err(e) = result
+                        && let Some(step) = id_steps.get(id)
+                        && !step.meta.fallible
+                    {
+                        errors.lock().unwrap().push(format!("{e}"));
                     }
                 }
             });

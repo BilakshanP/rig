@@ -1031,10 +1031,10 @@ fn validate_depends_on_cycles(config: &Config) -> Result<(), ConfigError> {
     let mut stack = std::collections::HashSet::new();
     let ids: Vec<String> = deps.keys().cloned().collect();
     for id in &ids {
-        if !visited.contains(id) {
-            if let Some(cycle_id) = dfs_cycle(id, &deps, &mut visited, &mut stack) {
-                return Err(ConfigError::DependsCycle(cycle_id));
-            }
+        if !visited.contains(id)
+            && let Some(cycle_id) = dfs_cycle(id, &deps, &mut visited, &mut stack)
+        {
+            return Err(ConfigError::DependsCycle(cycle_id));
         }
     }
     Ok(())

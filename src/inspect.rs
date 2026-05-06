@@ -465,14 +465,14 @@ fn collect_edges(cfg: &crate::config::Config) -> Vec<Edge> {
             .unwrap_or_else(|| format!("[{}]", step.name));
 
         // Sequential order
-        if !step.meta.optional {
-            if let Some(prev) = &prev_id {
-                edges.push(Edge {
-                    from: prev.clone(),
-                    to: from.clone(),
-                    label: "seq".into(),
-                });
-            }
+        if !step.meta.optional
+            && let Some(prev) = &prev_id
+        {
+            edges.push(Edge {
+                from: prev.clone(),
+                to: from.clone(),
+                label: "seq".into(),
+            });
         }
 
         // depends-on
