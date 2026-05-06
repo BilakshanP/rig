@@ -5,6 +5,7 @@
 ```bash
 git clone https://github.com/BilakshanP/rig.git
 cd rig
+ln -sf ../../hooks/pre-commit .git/hooks/pre-commit
 cargo build
 cargo test
 ```
