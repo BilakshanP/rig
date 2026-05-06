@@ -263,6 +263,16 @@ impl Runner {
         if sudo { format!("sudo {base}") } else { base }
     }
 
+    /// Apply merged env vars (global meta.env + step-level env) to a Command.
+    fn apply_env(&self, proc: &mut Command, step_env: Option<&HashMap<String, String>>) {
+        if let Some(global) = &self.config_meta.env {
+            for (k, v) in global { proc.env(k, self.subst(v)); }
+        }
+        if let Some(e) = step_env {
+            for (k, v) in e { proc.env(k, self.subst(v)); }
+        }
+    }
+
     /// Conditionally substitute: when `enabled` is true this is `subst`, else
     /// an owned copy of `s`. Used to honor per-field `expand` flags on fs
     /// actions.
@@ -338,9 +348,7 @@ impl Runner {
             }
             let mut proc = self.shell_command(&cmd, meta, sudo);
             if let Some(d) = dir { proc.current_dir(expand_tilde(&self.subst(d))); }
-            if let Some(e) = env {
-                for (k, v) in e { proc.env(k, self.subst(v)); }
-            }
+            self.apply_env(&mut proc, env);
             let output = proc.output()?;
             last_code = output.status.code().unwrap_or(-1);
             self.maybe_print(&output.stdout, &output.stderr, meta);
@@ -499,9 +507,7 @@ impl Runner {
                     let cmd = self.subst(cmd);
                     let mut proc = self.shell_command(&cmd, &step.meta, sudo);
                     if let Some(d) = dir { proc.current_dir(crate::path::expand_tilde(&self.subst(d))); }
-                    if let Some(e) = env {
-                        for (k, v) in e { proc.env(k, self.subst(v)); }
-                    }
+                    self.apply_env(&mut proc, env.as_ref());
                     let output = proc.output()?;
                     if !output.status.success() {
                         return Err(ExecError::Command(format!("captured step failed: {}", step.name)));
@@ -525,9 +531,7 @@ impl Runner {
                     use std::io::Write;
                     let mut proc = self.shell_command(&cmd, &step.meta, sudo);
                     if let Some(d) = dir { proc.current_dir(crate::path::expand_tilde(&self.subst(d))); }
-                    if let Some(e) = env {
-                        for (k, v) in e { proc.env(k, self.subst(v)); }
-                    }
+                    self.apply_env(&mut proc, env.as_ref());
                     let mut child = proc.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
                     if let Some(mut stdin) = child.stdin.take() {
                         stdin.write_all(input.as_bytes())?;

@@ -78,7 +78,8 @@ Configs are JSON or JSONC (comments supported). A config has a name, version, op
   "version": "1.0.0",
   "meta": {
     "retries": 2,                    // global default: retry failed steps twice
-    "log": "~/logs/{{name}}-{{timestamp}}.log"  // save run transcript
+    "log": "~/logs/{{name}}-{{timestamp}}.log",  // save run transcript
+    "env": { "CI": "true" }          // global env vars for all shell commands
   },
   "steps": [
     {

@@ -39,6 +39,9 @@ pub struct Meta {
     pub retry_delay: Option<f64>,
     #[serde(default)]
     pub shell: Option<ShellConfig>,
+    /// Global env vars applied to all shell commands. Step-level env merges with/overrides these.
+    #[serde(default)]
+    pub env: Option<HashMap<String, String>>,
     /// Raw vars tree. May contain nested objects; flattened into dot-path keys at runtime.
     #[serde(default)]
     pub vars: serde_json::Value,

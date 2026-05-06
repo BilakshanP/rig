@@ -60,6 +60,11 @@
                 "retries": { "type": "integer", "minimum": 0, "description": "Global default: auto-retry count on failure" },
                 "retry-delay": { "type": "number", "minimum": 0, "description": "Global default: seconds before each retry" },
                 "shell": { "$ref": "#/definitions/shell_config", "description": "Global default shell for command execution" },
+                "env": {
+                    "type": "object",
+                    "additionalProperties": { "type": "string" },
+                    "description": "Global env vars applied to all shell commands (step-level env merges with/overrides)"
+                },
                 "vars": {
                     "type": "object",
                     "description": "Variable defaults (may be nested; overridden by --set). Access via dot notation: {{super.mario.bros}}"

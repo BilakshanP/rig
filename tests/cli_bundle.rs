@@ -522,3 +522,38 @@ fn quiet_and_silent_together_suppresses_everything() {
     assert!(out.status.success());
     assert!(stdout.trim().is_empty(), "both -q and -s should produce no output");
 }
+
+#[test]
+fn meta_env_applies_globally() {
+    let src = tempfile::tempdir().unwrap();
+    write(
+        &src.path().join("test.json"),
+        r#"{"name":"env-test","version":"1.0.0","meta":{"env":{"MY_VAR":"global"}},"steps":[{"name":"echo","action":{"kind":"shell","commands":["echo $MY_VAR"]}}]}"#,
+    );
+    let out = bin()
+        .arg(src.path().join("test.json"))
+        .arg("-q")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success());
+    assert!(stdout.contains("global"), "meta.env should be available to shell commands");
+}
+
+#[test]
+fn step_env_overrides_meta_env() {
+    let src = tempfile::tempdir().unwrap();
+    write(
+        &src.path().join("test.json"),
+        r#"{"name":"env-test","version":"1.0.0","meta":{"env":{"MY_VAR":"global"}},"steps":[{"name":"echo","action":{"kind":"shell","commands":["echo $MY_VAR"],"env":{"MY_VAR":"local"}}}]}"#,
+    );
+    let out = bin()
+        .arg(src.path().join("test.json"))
+        .arg("-q")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success());
+    assert!(stdout.contains("local"), "step env should override meta.env");
+    assert!(!stdout.contains("global"), "global value should be overridden");
+}
