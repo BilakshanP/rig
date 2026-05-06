@@ -401,7 +401,7 @@ fn main() -> ExitCode {
     if let Some(id) = &cli.only {
         match runner.index.get(id) {
             Some(step) => {
-                if let Err(e) = runner.run_step(step, 0) {
+                if let Err(e) = runner.run_with_deps(step) {
                     eprintln!(
                         "{}",
                         style::render(&format!("<fr>error in step '{id}':</f> {e}"))

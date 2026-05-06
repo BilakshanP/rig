@@ -141,6 +141,8 @@ pub struct Step {
     pub on_return: Option<HashMap<String, Vec<StepRef>>>,
     #[serde(default)]
     pub then: Vec<StepRef>,
+    #[serde(default, rename = "depends-on")]
+    pub depends_on: Vec<String>,
     #[serde(default)]
     pub meta: StepMeta,
 }
@@ -921,6 +923,11 @@ fn collect_all_ids(step: &Step, ids: &mut std::collections::HashSet<String>) {
 }
 
 fn check_refs(step: &Step, ids: &std::collections::HashSet<String>) -> Result<(), ConfigError> {
+    for dep in &step.depends_on {
+        if !ids.contains(dep) {
+            return Err(ConfigError::UnknownRef(dep.clone()));
+        }
+    }
     for child in &step.then {
         check_step_ref(child, ids)?;
     }

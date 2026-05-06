@@ -146,6 +146,33 @@ impl Runner {
         Ok(())
     }
 
+    /// Run a step after resolving its `depends-on` prerequisites (transitively).
+    pub fn run_with_deps(&self, step: &Step) -> Result<(), ExecError> {
+        let mut visited = std::collections::HashSet::new();
+        self.resolve_deps(step, &mut visited)?;
+        self.run_step(step, 0)
+    }
+
+    fn resolve_deps(
+        &self,
+        step: &Step,
+        visited: &mut std::collections::HashSet<String>,
+    ) -> Result<(), ExecError> {
+        for dep_id in &step.depends_on {
+            if visited.contains(dep_id) {
+                continue;
+            }
+            visited.insert(dep_id.clone());
+            let dep = self
+                .index
+                .get(dep_id)
+                .ok_or_else(|| ExecError::StepNotFound(dep_id.clone()))?;
+            self.resolve_deps(dep, visited)?;
+            self.run_step(dep, 0)?;
+        }
+        Ok(())
+    }
+
     pub fn run_step(&self, step: &Step, depth: usize) -> Result<(), ExecError> {
         let indent = "  ".repeat(depth);
 
@@ -1877,6 +1904,7 @@ mod tests {
             on_failure: None,
             on_return: None,
             then: vec![],
+            depends_on: vec![],
             meta: StepMeta::default(),
         }
     }
@@ -1939,6 +1967,7 @@ mod tests {
             on_failure: None,
             on_return: None,
             then: vec![],
+            depends_on: vec![],
             meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
@@ -1967,6 +1996,7 @@ mod tests {
             on_failure: None,
             on_return: None,
             then: vec![],
+            depends_on: vec![],
             meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
@@ -1995,6 +2025,7 @@ mod tests {
             on_failure: None,
             on_return: None,
             then: vec![],
+            depends_on: vec![],
             meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
@@ -2024,6 +2055,7 @@ mod tests {
             on_failure: None,
             on_return: None,
             then: vec![],
+            depends_on: vec![],
             meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
@@ -2054,6 +2086,7 @@ mod tests {
             on_failure: None,
             on_return: None,
             then: vec![],
+            depends_on: vec![],
             meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
@@ -2083,6 +2116,7 @@ mod tests {
             on_failure: None,
             on_return: None,
             then: vec![],
+            depends_on: vec![],
             meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
@@ -2113,6 +2147,7 @@ mod tests {
             on_failure: None,
             on_return: None,
             then: vec![],
+            depends_on: vec![],
             meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
@@ -2142,6 +2177,7 @@ mod tests {
             on_failure: None,
             on_return: None,
             then: vec![],
+            depends_on: vec![],
             meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
@@ -2171,6 +2207,7 @@ mod tests {
             on_failure: None,
             on_return: None,
             then: vec![],
+            depends_on: vec![],
             meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
@@ -2196,6 +2233,7 @@ mod tests {
             on_failure: None,
             on_return: None,
             then: vec![],
+            depends_on: vec![],
             meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
@@ -2233,6 +2271,7 @@ mod tests {
             on_failure: None,
             on_return: None,
             then: vec![],
+            depends_on: vec![],
             meta: StepMeta::default(),
         };
 
@@ -2275,6 +2314,7 @@ mod tests {
             on_failure: None,
             on_return: None,
             then: vec![],
+            depends_on: vec![],
             meta: StepMeta::default(),
         };
 
@@ -2324,6 +2364,7 @@ mod tests {
             on_failure: None,
             on_return: None,
             then: vec![],
+            depends_on: vec![],
             meta: StepMeta::default(),
         };
 
@@ -2366,6 +2407,7 @@ mod tests {
             on_failure: None,
             on_return: None,
             then: vec![],
+            depends_on: vec![],
             meta: StepMeta::default(),
         };
 
@@ -2410,6 +2452,7 @@ mod tests {
             on_failure: None,
             on_return: None,
             then: vec![],
+            depends_on: vec![],
             meta: StepMeta::default(),
         };
 
@@ -2452,6 +2495,7 @@ mod tests {
             on_failure: None,
             on_return: None,
             then: vec![],
+            depends_on: vec![],
             meta: StepMeta::default(),
         };
 
@@ -2481,6 +2525,7 @@ mod tests {
                 vec!["echo child > child.txt"],
                 Some(dir.path().to_str().unwrap()),
             )))],
+            depends_on: vec![],
             meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
@@ -2506,6 +2551,7 @@ mod tests {
                 vec!["echo child > child.txt"],
                 Some(dir.path().to_str().unwrap()),
             )))],
+            depends_on: vec![],
             meta: StepMeta {
                 fallible: true,
                 ..StepMeta::default()
@@ -2530,6 +2576,7 @@ mod tests {
             on_failure: None,
             on_return: None,
             then: vec![],
+            depends_on: vec![],
             meta: StepMeta {
                 optional: true,
                 ..StepMeta::default()
@@ -2557,6 +2604,7 @@ mod tests {
             on_failure: None,
             on_return: None,
             then: vec![],
+            depends_on: vec![],
             meta: StepMeta {
                 optional: true,
                 ..StepMeta::default()
@@ -2578,6 +2626,7 @@ mod tests {
             on_failure: None,
             on_return: None,
             then: vec![],
+            depends_on: vec![],
             meta: StepMeta::default(),
         };
         runner(index).run_step(&step, 0).unwrap();
@@ -2603,6 +2652,7 @@ mod tests {
             on_failure: None,
             on_return: None,
             then: vec![],
+            depends_on: vec![],
             meta: StepMeta {
                 optional: true,
                 ..StepMeta::default()
@@ -2624,6 +2674,7 @@ mod tests {
             on_failure: Some(vec![StepRef::Id("handler".into())]),
             on_return: None,
             then: vec![],
+            depends_on: vec![],
             meta: StepMeta::default(),
         };
         runner(index).run_step(&step, 0).unwrap();
@@ -2649,6 +2700,7 @@ mod tests {
             on_failure: None,
             on_return: None,
             then: vec![],
+            depends_on: vec![],
             meta: StepMeta {
                 optional: true,
                 ..StepMeta::default()
@@ -2670,6 +2722,7 @@ mod tests {
             on_failure: None,
             on_return: None,
             then: vec![],
+            depends_on: vec![],
             meta: StepMeta {
                 optional: true,
                 ..StepMeta::default()
@@ -2695,6 +2748,7 @@ mod tests {
                 vec![StepRef::Id("special".into())],
             )])),
             then: vec![],
+            depends_on: vec![],
             meta: StepMeta::default(),
         };
         runner(index).run_step(&step, 0).unwrap();
@@ -2718,6 +2772,7 @@ mod tests {
             on_failure: None,
             on_return: None,
             then: vec![],
+            depends_on: vec![],
             meta: StepMeta {
                 optional: true,
                 ..StepMeta::default()
@@ -2742,6 +2797,7 @@ mod tests {
                 vec![StepRef::Id("catch".into())],
             )])),
             then: vec![],
+            depends_on: vec![],
             meta: StepMeta::default(),
         };
         runner(index).run_step(&step, 0).unwrap();
@@ -2767,6 +2823,7 @@ mod tests {
             on_failure: None,
             on_return: None,
             then: vec![],
+            depends_on: vec![],
             meta: StepMeta {
                 optional: true,
                 ..StepMeta::default()
@@ -2791,6 +2848,7 @@ mod tests {
                 vec!["echo child > child.txt"],
                 Some(dir.path().to_str().unwrap()),
             )))],
+            depends_on: vec![],
             meta: StepMeta::default(),
         };
         runner(index).run_step(&step, 0).unwrap();
@@ -2815,6 +2873,7 @@ mod tests {
             on_failure: None,
             on_return: None,
             then: vec![],
+            depends_on: vec![],
             meta: StepMeta {
                 retries: Some(2),
                 ..StepMeta::default()
@@ -2841,6 +2900,7 @@ mod tests {
             on_failure: None,
             on_return: None,
             then: vec![StepRef::Id("a".into())],
+            depends_on: vec![],
             meta: StepMeta::default(),
         };
         let mut index = HashMap::new();
@@ -2878,6 +2938,7 @@ mod tests {
             on_failure: None,
             on_return: None,
             then: vec![],
+            depends_on: vec![],
             meta: StepMeta::default(),
         };
         let index = HashMap::new();
