@@ -633,9 +633,14 @@ fn quiet_and_silent_together_suppresses_everything() {
 #[test]
 fn meta_env_applies_globally() {
     let src = tempfile::tempdir().unwrap();
+    // Use a var action to capture the env var value (cross-platform)
     write(
         &src.path().join("test.json"),
-        r#"{"name":"env-test","version":"1.0.0","meta":{"env":{"MY_VAR":"global"}},"steps":[{"name":"echo","action":{"kind":"shell","commands":["echo $MY_VAR"]}}]}"#,
+        if cfg!(windows) {
+            r#"{"name":"env-test","version":"1.0.0","meta":{"env":{"MY_VAR":"global"}},"steps":[{"name":"echo","action":{"kind":"shell","commands":["echo %MY_VAR%"]}}]}"#
+        } else {
+            r#"{"name":"env-test","version":"1.0.0","meta":{"env":{"MY_VAR":"global"}},"steps":[{"name":"echo","action":{"kind":"shell","commands":["echo $MY_VAR"]}}]}"#
+        },
     );
     let out = bin()
         .arg(src.path().join("test.json"))
@@ -655,7 +660,11 @@ fn step_env_overrides_meta_env() {
     let src = tempfile::tempdir().unwrap();
     write(
         &src.path().join("test.json"),
-        r#"{"name":"env-test","version":"1.0.0","meta":{"env":{"MY_VAR":"global"}},"steps":[{"name":"echo","action":{"kind":"shell","commands":["echo $MY_VAR"],"env":{"MY_VAR":"local"}}}]}"#,
+        if cfg!(windows) {
+            r#"{"name":"env-test","version":"1.0.0","meta":{"env":{"MY_VAR":"global"}},"steps":[{"name":"echo","action":{"kind":"shell","commands":["echo %MY_VAR%"],"env":{"MY_VAR":"local"}}}]}"#
+        } else {
+            r#"{"name":"env-test","version":"1.0.0","meta":{"env":{"MY_VAR":"global"}},"steps":[{"name":"echo","action":{"kind":"shell","commands":["echo $MY_VAR"],"env":{"MY_VAR":"local"}}}]}"#
+        },
     );
     let out = bin()
         .arg(src.path().join("test.json"))
