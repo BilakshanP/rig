@@ -97,6 +97,11 @@
                         "$ref": "#/definitions/step_refs"
                     }
                 },
+                "depends-on": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Step IDs that must run before this step (resolved transitively with --only)"
+                },
                 "then": {
                     "type": "array",
                     "description": "Sub-steps that run after the action succeeds (or is handled)",

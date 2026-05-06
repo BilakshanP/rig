@@ -292,6 +292,24 @@ Control execution behavior per step:
 
 The `shell` field accepts a string shorthand (`"sh"`, `"bash"`, `"zsh"`, `"cmd"`, `"powershell"`, `"pwsh"`) or an object `{ "cmd": "...", "args": [...] }`. It can be set at the top-level `meta` (global default) or per-step (overrides global).
 
+### depends-on
+
+Steps can declare prerequisites that are resolved transitively when using `--only`:
+
+```jsonc
+{
+  "id": "deploy",
+  "name": "Deploy",
+  "depends-on": ["build", "test"],
+  "action": { "kind": "shell", "commands": ["./deploy.sh"] }
+}
+```
+
+- `rig config.json --only deploy` runs `build`, `test`, then `deploy`
+- Dependencies are resolved transitively and deduplicated
+- Cycles are rejected at parse time
+- In normal sequential flow, `depends-on` has no effect (steps already run in order)
+
 ### Conditions
 
 `if-exists` and `if-not-exists` accept: `"skip"`, `"overwrite"`, `"append"`, `"panic"`, or execute a step:
