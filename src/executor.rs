@@ -142,7 +142,7 @@ impl Runner {
         let id_steps: HashMap<&str, &Step> = steps
             .iter()
             .filter(|s| !s.meta.optional && s.id.is_some())
-            .map(|s| (s.id.as_deref().unwrap(), s))
+            .map(|s| (s.id.as_deref().expect("filtered for id.is_some()"), s))
             .collect();
 
         // If no DAG structure, fall back to sequential
@@ -163,7 +163,7 @@ impl Runner {
             if step.meta.optional || step.id.is_none() {
                 continue;
             }
-            let id = step.id.as_deref().unwrap();
+            let id = step.id.as_deref().expect("filtered for id.is_some()");
             let count = step
                 .depends_on
                 .iter()
@@ -178,7 +178,7 @@ impl Runner {
             if step.meta.optional || step.id.is_none() {
                 continue;
             }
-            let id = step.id.as_deref().unwrap();
+            let id = step.id.as_deref().expect("filtered for id.is_some()");
             for dep in &step.depends_on {
                 dependents.entry(dep.as_str()).or_default().push(id);
             }
@@ -213,18 +213,21 @@ impl Runner {
                     .collect();
 
                 for handle in handles {
-                    let (id, result) = handle.join().unwrap();
+                    let (id, result) = handle.join().expect("thread join");
                     completed.insert(id);
                     if let Err(e) = result
                         && let Some(step) = id_steps.get(id)
                         && !step.meta.fallible
                     {
-                        errors.lock().unwrap().push(format!("{e}"));
+                        errors
+                            .lock()
+                            .expect("parallel errors lock")
+                            .push(format!("{e}"));
                     }
                 }
             });
 
-            let errs = errors.lock().unwrap();
+            let errs = errors.lock().expect("parallel errors lock");
             if !errs.is_empty() {
                 return Err(ExecError::Command(errs.join("; ")));
             }
@@ -236,7 +239,7 @@ impl Runner {
                         if completed.contains(dep_id) {
                             continue;
                         }
-                        let deg = in_degree.get_mut(dep_id).unwrap();
+                        let deg = in_degree.get_mut(dep_id).expect("dep in DAG");
                         *deg -= 1;
                         if *deg == 0 {
                             queue.push_back(dep_id);
@@ -302,7 +305,7 @@ impl Runner {
 
         // Hard cycle limit
         if let Some(id) = &step.id {
-            let mut counts = self.entry_counts.lock().unwrap();
+            let mut counts = self.entry_counts.lock().expect("entry_counts lock");
             let count = counts.entry(id.clone()).or_insert(0);
             *count += 1;
             if *count > MAX_ENTRIES {
@@ -360,7 +363,7 @@ impl Runner {
         }
 
         // All retries exhausted - resolve failure handler
-        let err = last_err.unwrap();
+        let err = last_err.expect("retries exhausted with error");
         let handler = self.resolve_handler(step, -1, false);
         if let Some(refs) = handler {
             self.run_step_refs(refs, depth + 1)?;
@@ -435,7 +438,7 @@ impl Runner {
     /// Execute an action, returning the exit code (0 for non-shell actions on success).
     /// Substitute runtime vars in a string using the current scope.
     pub fn subst(&self, s: &str) -> String {
-        self.scope.lock().unwrap().substitute(s)
+        self.scope.lock().expect("scope lock").substitute(s)
     }
 
     /// Resolve the effective ShellConfig: step-level overrides config-level, falls back to platform default.
@@ -572,7 +575,7 @@ impl Runner {
 
     fn write_log(&self, msg: &str) {
         use std::io::Write;
-        if let Some(f) = self.log_file.lock().unwrap().as_mut() {
+        if let Some(f) = self.log_file.lock().expect("log lock").as_mut() {
             let _ = writeln!(f, "{msg}");
         }
     }
@@ -580,7 +583,7 @@ impl Runner {
     fn write_log_bytes(&self, data: &[u8]) {
         use std::io::Write;
         if !data.is_empty()
-            && let Some(f) = self.log_file.lock().unwrap().as_mut()
+            && let Some(f) = self.log_file.lock().expect("log lock").as_mut()
         {
             let _ = f.write_all(data);
         }
@@ -672,7 +675,10 @@ impl Runner {
                 let value = String::from_utf8_lossy(&output.stdout)
                     .trim_end_matches('\n')
                     .to_string();
-                self.scope.lock().unwrap().set(&key, value.clone());
+                self.scope
+                    .lock()
+                    .expect("scope lock")
+                    .set(&key, value.clone());
                 println!(
                     "{indent}  {}",
                     style::render(&format!("<fg>set</f> <mb>{key}</m> = {value:?}"))
@@ -684,7 +690,10 @@ impl Runner {
                     .map_err(|id| ExecError::StepNotFound(id.into()))?;
                 let output = self.capture_step_stdout(&step)?;
                 let value = output.trim_end_matches('\n').to_string();
-                self.scope.lock().unwrap().set(&key, value.clone());
+                self.scope
+                    .lock()
+                    .expect("scope lock")
+                    .set(&key, value.clone());
                 println!(
                     "{indent}  {}",
                     style::render(&format!(
@@ -698,7 +707,7 @@ impl Runner {
                 let value = self
                     .scope
                     .lock()
-                    .unwrap()
+                    .expect("scope lock")
                     .get(&key)
                     .map(|s| s.to_string())
                     .ok_or_else(|| ExecError::Command(format!("var '{key}' is not set")))?;
@@ -715,7 +724,7 @@ impl Runner {
                 let contents = std::fs::read_to_string(&path).map_err(|e| {
                     ExecError::Command(format!("failed to read {}: {e}", path.display()))
                 })?;
-                self.scope.lock().unwrap().set(&key, contents);
+                self.scope.lock().expect("scope lock").set(&key, contents);
                 println!(
                     "{indent}  {}",
                     style::render(&format!(
@@ -768,7 +777,8 @@ impl Runner {
     ) -> Result<(), ExecError> {
         let file = self.subst(file);
         // Build cli_vars: parent scope values + set overrides (substituted)
-        let mut cli_vars: HashMap<String, String> = self.scope.lock().unwrap().all_values();
+        let mut cli_vars: HashMap<String, String> =
+            self.scope.lock().expect("scope lock").all_values();
         if let Some(s) = set {
             for (k, v) in s {
                 cli_vars.insert(k.clone(), self.subst(v));
@@ -909,7 +919,11 @@ impl Runner {
 
     fn io_write(&self, level: &IoLevel, message: &str, markup: bool, indent: &str) {
         // Use the colorized substitution so unresolved @vars stand out in the terminal.
-        let message_display = self.scope.lock().unwrap().substitute_display(message);
+        let message_display = self
+            .scope
+            .lock()
+            .expect("scope lock")
+            .substitute_display(message);
         // For log file and fallback text, use plain substitution.
         let message_plain = self.subst(message);
         let text = if markup {
@@ -971,7 +985,10 @@ impl Runner {
 
         if self.dry_run {
             if let Some(d) = default {
-                self.scope.lock().unwrap().set(&key, d.to_string());
+                self.scope
+                    .lock()
+                    .expect("scope lock")
+                    .set(&key, d.to_string());
                 println!("{indent}  [dry-run] read {key} = {d:?} (default)");
             } else {
                 println!("{indent}  [dry-run] read {key} (no input in dry-run; unset)");
@@ -1027,7 +1044,7 @@ impl Runner {
         } else {
             format!("{value:?}")
         };
-        self.scope.lock().unwrap().set(&key, value);
+        self.scope.lock().expect("scope lock").set(&key, value);
         println!(
             "{indent}  {}",
             style::render(&format!("<fg>read</f> <mb>{key}</m> = {display}"))

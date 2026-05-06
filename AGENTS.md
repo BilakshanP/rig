@@ -108,6 +108,14 @@ tests/
 - `--validate`: parse-only validation
 - Runtime substitution: all string fields in actions (`commands`, `dir`, `env`, `repo`, `dest`, `path`, `from`, `to`, `content`, `message`) are substituted via `Scope` before use.
 
+## Coding Practices
+
+- No `.unwrap()` in non-test code — use `.expect("reason")` or propagate with `?`
+- `cargo clippy -- -D warnings` must pass
+- `cargo fmt` must pass
+- Update docs (README, CONTEXT, AGENTS, schema) alongside code changes
+- Pre-commit hook enforces fmt + clippy; CI additionally runs tests on Linux, Windows, macOS
+
 ## Validation (at parse time)
 
 - Duplicate step IDs rejected

@@ -101,6 +101,9 @@ All tests must pass on both Linux and Windows (CI runs both).
 ## Code Style
 
 - Follow existing patterns — match the surrounding code
-- `cargo clippy` must pass with no warnings
+- `cargo clippy -- -D warnings` must pass (enforced by pre-commit hook and CI)
+- `cargo fmt` must pass (enforced by pre-commit hook and CI)
+- **No `.unwrap()` in non-test code** — use `.expect("context")` with a message explaining why it's safe, or propagate errors with `?`
 - Keep `additionalProperties: false` on all schema action definitions
 - Update docs alongside code changes (README, CONTEXT.md, AGENTS.md, schema.json)
+- Prefer `?` over `.expect()` when the error can be meaningfully propagated
