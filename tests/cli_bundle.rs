@@ -33,8 +33,8 @@ fn pack_and_unpack_roundtrip() {
         .arg(src.path())
         .arg("-o")
         .arg(&archive)
-        .status()
-        .unwrap();
+        .output()
+        .unwrap().status;
     assert!(status.success(), "pack subcommand failed");
     assert!(archive.is_file());
 
@@ -44,8 +44,8 @@ fn pack_and_unpack_roundtrip() {
         .arg(&archive)
         .arg("-o")
         .arg(dst.path())
-        .status()
-        .unwrap();
+        .output()
+        .unwrap().status;
     assert!(status.success(), "unpack subcommand failed");
 
     assert!(dst.path().join("manifest.json").is_file());
@@ -80,8 +80,8 @@ fn info_prints_manifest_summary() {
         .arg(src.path())
         .arg("-o")
         .arg(&archive)
-        .status()
-        .unwrap();
+        .output()
+        .unwrap().status;
     assert!(status.success());
 
     let output = bin().arg("info").arg(&archive).output().unwrap();
@@ -143,8 +143,8 @@ fn pack_without_output_flag_derives_rig_suffix() {
         .current_dir(work.path())
         .arg("pack")
         .arg("auto")
-        .status()
-        .unwrap();
+        .output()
+        .unwrap().status;
     assert!(status.success(), "pack without --output failed");
     assert!(
         work.path().join("auto.rig").is_file(),
@@ -166,16 +166,16 @@ fn unpack_without_output_flag_strips_rig_suffix() {
         .arg(src.path())
         .arg("-o")
         .arg(&archive)
-        .status()
-        .unwrap();
+        .output()
+        .unwrap().status;
     assert!(status.success());
 
     let status = bin()
         .current_dir(work.path())
         .arg("unpack")
         .arg("thing.rig")
-        .status()
-        .unwrap();
+        .output()
+        .unwrap().status;
     assert!(status.success(), "unpack without --output failed");
     // Should have created ./thing/ (the .rig suffix stripped) in cwd.
     assert!(
@@ -198,8 +198,8 @@ fn unpack_errors_when_no_rig_suffix_and_no_output() {
         .arg(src.path())
         .arg("-o")
         .arg(&archive)
-        .status()
-        .unwrap();
+        .output()
+        .unwrap().status;
     assert!(status.success());
 
     let output = bin()
@@ -241,8 +241,8 @@ fn running_a_trivial_bundle_succeeds() {
         .arg(src.path())
         .arg("-o")
         .arg(&archive)
-        .status()
-        .unwrap();
+        .output()
+        .unwrap().status;
     assert!(status.success());
 
     let output = bin().arg(&archive).output().unwrap();
@@ -286,7 +286,7 @@ fn pack_inspection_bundle() -> (tempfile::TempDir, std::path::PathBuf) {
     );
     let archive_dir = tempfile::tempdir().unwrap();
     let archive = archive_dir.path().join("inspect.rig");
-    let status = bin().arg("pack").arg(src.path()).arg("-o").arg(&archive).status().unwrap();
+    let status = bin().arg("pack").arg(src.path()).arg("-o").arg(&archive).output().unwrap().status;
     assert!(status.success());
     (archive_dir, archive)
 }
@@ -389,7 +389,7 @@ fn python_project_example_bundle_renders_templates() {
 
     let archive_dir = tempfile::tempdir().unwrap();
     let archive = archive_dir.path().join("python-project.rig");
-    let status = bin().arg("pack").arg(&src_dir).arg("-o").arg(&archive).status().unwrap();
+    let status = bin().arg("pack").arg(&src_dir).arg("-o").arg(&archive).output().unwrap().status;
     assert!(status.success(), "pack failed");
 
     let run_dir = tempfile::tempdir().unwrap();
