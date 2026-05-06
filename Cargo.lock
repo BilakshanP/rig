@@ -26,7 +26,7 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 [[package]]
 name = "aml"
 version = "0.1.0"
-source = "git+https://github.com/BilakshanP/aml.git#a91cb357933e8100c11cbf4d5215669e2d652e02"
+source = "git+https://github.com/BilakshanP/aml.git?rev=a91cb35#a91cb357933e8100c11cbf4d5215669e2d652e02"
 dependencies = [
  "aml-core",
 ]
@@ -34,7 +34,7 @@ dependencies = [
 [[package]]
 name = "aml-core"
 version = "0.1.0"
-source = "git+https://github.com/BilakshanP/aml.git#a91cb357933e8100c11cbf4d5215669e2d652e02"
+source = "git+https://github.com/BilakshanP/aml.git?rev=a91cb35#a91cb357933e8100c11cbf4d5215669e2d652e02"
 dependencies = [
  "bitflags",
  "chumsky",
