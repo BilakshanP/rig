@@ -1,7 +1,5 @@
-//! Integration tests for the `rig pack` / `rig unpack` / `rig info` subcommands.
-//!
-//! These exercise the compiled binary (via `CARGO_BIN_EXE_rig`) so we verify
-//! the clap wiring, not just the library functions.
+//! Integration tests for `.rig` bundle operations: pack, unpack, info,
+//! bundle execution, inspection flags on bundles, and template rendering.
 
 use std::process::Command;
 
@@ -14,6 +12,10 @@ fn write(path: &std::path::Path, contents: &str) {
         std::fs::create_dir_all(parent).unwrap();
     }
     std::fs::write(path, contents).unwrap();
+}
+
+fn strip_ansi(s: &str) -> String {
+    String::from_utf8(strip_ansi_escapes::strip(s)).unwrap_or_else(|_| s.to_string())
 }
 
 #[test]
@@ -90,7 +92,6 @@ fn info_prints_manifest_summary() {
     let output = bin().arg("info").arg(&archive).output().unwrap();
     assert!(output.status.success(), "info subcommand failed");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    // Strip ANSI for easier matching.
     let plain = strip_ansi(&stdout);
     assert!(
         plain.contains("cli-info-demo"),
@@ -150,8 +151,6 @@ fn pack_without_output_flag_derives_rig_suffix() {
         &src.path().join("manifest.json"),
         r#"{"name":"auto","version":"0.0.1","steps":[]}"#,
     );
-    // Source dir is named by its tempdir suffix; pack it from a scratch cwd
-    // so the derived output lands somewhere we control.
     let work = tempfile::tempdir().unwrap();
     let copy_dir = work.path().join("auto");
     std::fs::create_dir_all(&copy_dir).unwrap();
@@ -202,7 +201,6 @@ fn unpack_without_output_flag_strips_rig_suffix() {
         .unwrap()
         .status;
     assert!(status.success(), "unpack without --output failed");
-    // Should have created ./thing/ (the .rig suffix stripped) in cwd.
     assert!(
         work.path().join("thing").join("manifest.json").is_file(),
         "expected thing/manifest.json after default unpack"
@@ -217,7 +215,7 @@ fn unpack_errors_when_no_rig_suffix_and_no_output() {
         r#"{"name":"auto","version":"0.0.1","steps":[]}"#,
     );
     let work = tempfile::tempdir().unwrap();
-    let archive = work.path().join("archive.tgz"); // deliberate: no .rig
+    let archive = work.path().join("archive.tgz");
     let status = bin()
         .arg("pack")
         .arg(src.path())
@@ -244,9 +242,6 @@ fn unpack_errors_when_no_rig_suffix_and_no_output() {
 
 #[test]
 fn running_a_trivial_bundle_succeeds() {
-    // End-to-end smoke test: a bundle whose only step is an io banner. This
-    // exercises the full bundle-detection → open_bundle → Runner path
-    // without depending on filesystem semantics we refine in later tasks.
     let src = tempfile::tempdir().unwrap();
     write(
         &src.path().join("manifest.jsonc"),
@@ -285,8 +280,7 @@ fn running_a_trivial_bundle_succeeds() {
     );
 }
 
-/// Shared fixture: a bundle with two steps and a required var so we can
-/// exercise every inspection flag.
+/// Shared fixture: a bundle with two steps and a required var.
 fn pack_inspection_bundle() -> (tempfile::TempDir, std::path::PathBuf) {
     let src = tempfile::tempdir().unwrap();
     write(
@@ -362,7 +356,6 @@ fn bundle_describe_succeeds_without_set() {
     assert!(output.status.success());
     let plain = strip_ansi(&String::from_utf8_lossy(&output.stdout));
     assert!(plain.contains("banner step"), "describe output: {plain}");
-    // Raw template preserved (no substitution in describe).
     assert!(
         plain.contains("{{greeting}}"),
         "expected raw template in describe: {plain}"
@@ -390,7 +383,6 @@ fn bundle_vars_lists_undefined() {
 #[test]
 fn bundle_dry_run_requires_set_vars() {
     let (_guard, archive) = pack_inspection_bundle();
-    // Without --set, the undefined var should error (matches pre-bundle behavior).
     let output = bin().arg("--dry-run").arg(&archive).output().unwrap();
     assert!(!output.status.success());
     let stderr = strip_ansi(&String::from_utf8_lossy(&output.stderr));
@@ -444,8 +436,6 @@ fn bundle_only_runs_single_step() {
         plain.contains("hi world"),
         "rendered message missing: {plain}"
     );
-    // The other step ("noop") should NOT have been recorded in output —
-    // --only runs exactly one step.
     assert!(
         !plain.contains("noop step"),
         "--only ran more than one step: {plain}"
@@ -454,11 +444,6 @@ fn bundle_only_runs_single_step() {
 
 #[test]
 fn python_project_example_bundle_renders_templates() {
-    // End-to-end: pack the real python-project example, run the file-copy
-    // steps against a tempdir, verify the output tree is rendered correctly.
-    // The shell steps (git init / uv sync / basedpyright) are skipped —
-    // they require external tools not guaranteed in CI.
-
     let manifest = env!("CARGO_MANIFEST_DIR");
     let src_dir = std::path::PathBuf::from(manifest).join("examples/python-project");
     assert!(src_dir.is_dir(), "missing example: {}", src_dir.display());
@@ -507,7 +492,6 @@ fn python_project_example_bundle_renders_templates() {
         );
     }
 
-    // Spot-check the tree.
     let root = run_dir.path().join("my-tool");
     assert!(root.is_dir(), "expected output root: {}", root.display());
 
@@ -537,297 +521,4 @@ fn python_project_example_bundle_renders_templates() {
     assert!(root.join(".gitignore").is_file());
     assert!(root.join(".github/workflows/ci.yml").is_file());
     assert!(root.join("pyrightconfig.json").is_file());
-}
-
-fn strip_ansi(s: &str) -> String {
-    String::from_utf8(strip_ansi_escapes::strip(s)).unwrap_or_else(|_| s.to_string())
-}
-
-#[test]
-fn quiet_suppresses_chrome() {
-    let src = tempfile::tempdir().unwrap();
-    write(
-        &src.path().join("test.json"),
-        r#"{"name":"q-test","version":"1.0.0","steps":[{"name":"echo","action":{"kind":"shell","commands":["echo hello"]}}]}"#,
-    );
-    let out = bin()
-        .arg(src.path().join("test.json"))
-        .arg("-q")
-        .output()
-        .unwrap();
-    let stdout = strip_ansi(&String::from_utf8_lossy(&out.stdout));
-    assert!(out.status.success());
-    assert!(!stdout.contains("Running:"), "chrome should be suppressed");
-    assert!(!stdout.contains("->"), "step arrows should be suppressed");
-    assert!(!stdout.contains("Done."), "Done should be suppressed");
-    assert!(stdout.contains("hello"), "command output should show");
-}
-
-#[test]
-fn quiet_qq_suppresses_all_output() {
-    let src = tempfile::tempdir().unwrap();
-    write(
-        &src.path().join("test.json"),
-        r#"{"name":"qq-test","version":"1.0.0","steps":[{"name":"echo","action":{"kind":"shell","commands":["echo hello"]}},{"name":"msg","action":{"kind":"io","level":"info","message":"hi"}}]}"#,
-    );
-    let out = bin()
-        .arg(src.path().join("test.json"))
-        .arg("-qq")
-        .output()
-        .unwrap();
-    let stdout = strip_ansi(&String::from_utf8_lossy(&out.stdout));
-    assert!(out.status.success());
-    assert!(
-        !stdout.contains("hello"),
-        "command output should be suppressed at -qq"
-    );
-    assert!(
-        !stdout.contains("hi"),
-        "io messages should be suppressed at -qq"
-    );
-}
-
-#[test]
-fn silent_suppresses_command_output_but_keeps_chrome() {
-    let src = tempfile::tempdir().unwrap();
-    write(
-        &src.path().join("test.json"),
-        r#"{"name":"s-test","version":"1.0.0","steps":[{"name":"echo","action":{"kind":"shell","commands":["echo hello"]}}]}"#,
-    );
-    let out = bin()
-        .arg(src.path().join("test.json"))
-        .arg("-s")
-        .output()
-        .unwrap();
-    let stdout = strip_ansi(&String::from_utf8_lossy(&out.stdout));
-    assert!(out.status.success());
-    assert!(stdout.contains("->"), "chrome should show with --silent");
-    assert!(stdout.contains("Done."), "Done should show with --silent");
-    assert!(
-        !stdout.contains("hello"),
-        "command output should be suppressed with --silent"
-    );
-}
-
-#[test]
-fn quiet_and_silent_together_suppresses_everything() {
-    let src = tempfile::tempdir().unwrap();
-    write(
-        &src.path().join("test.json"),
-        r#"{"name":"qs-test","version":"1.0.0","steps":[{"name":"echo","action":{"kind":"shell","commands":["echo hello"]}}]}"#,
-    );
-    let out = bin()
-        .arg(src.path().join("test.json"))
-        .arg("-q")
-        .arg("-s")
-        .output()
-        .unwrap();
-    let stdout = strip_ansi(&String::from_utf8_lossy(&out.stdout));
-    assert!(out.status.success());
-    assert!(
-        stdout.trim().is_empty(),
-        "both -q and -s should produce no output"
-    );
-}
-
-#[test]
-fn meta_env_applies_globally() {
-    let src = tempfile::tempdir().unwrap();
-    // Use a var action to capture the env var value (cross-platform)
-    write(
-        &src.path().join("test.json"),
-        if cfg!(windows) {
-            r#"{"name":"env-test","version":"1.0.0","meta":{"env":{"MY_VAR":"global"}},"steps":[{"name":"echo","action":{"kind":"shell","commands":["echo %MY_VAR%"]}}]}"#
-        } else {
-            r#"{"name":"env-test","version":"1.0.0","meta":{"env":{"MY_VAR":"global"}},"steps":[{"name":"echo","action":{"kind":"shell","commands":["echo $MY_VAR"]}}]}"#
-        },
-    );
-    let out = bin()
-        .arg(src.path().join("test.json"))
-        .arg("-q")
-        .output()
-        .unwrap();
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(out.status.success());
-    assert!(
-        stdout.contains("global"),
-        "meta.env should be available to shell commands"
-    );
-}
-
-#[test]
-fn step_env_overrides_meta_env() {
-    let src = tempfile::tempdir().unwrap();
-    write(
-        &src.path().join("test.json"),
-        if cfg!(windows) {
-            r#"{"name":"env-test","version":"1.0.0","meta":{"env":{"MY_VAR":"global"}},"steps":[{"name":"echo","action":{"kind":"shell","commands":["echo %MY_VAR%"],"env":{"MY_VAR":"local"}}}]}"#
-        } else {
-            r#"{"name":"env-test","version":"1.0.0","meta":{"env":{"MY_VAR":"global"}},"steps":[{"name":"echo","action":{"kind":"shell","commands":["echo $MY_VAR"],"env":{"MY_VAR":"local"}}}]}"#
-        },
-    );
-    let out = bin()
-        .arg(src.path().join("test.json"))
-        .arg("-q")
-        .output()
-        .unwrap();
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(out.status.success());
-    assert!(
-        stdout.contains("local"),
-        "step env should override meta.env"
-    );
-    assert!(
-        !stdout.contains("global"),
-        "global value should be overridden"
-    );
-}
-
-#[test]
-fn on_return_fires_with_specific_exit_code() {
-    let src = tempfile::tempdir().unwrap();
-    write(
-        &src.path().join("test.json"),
-        r#"{
-            "name":"on-return-test","version":"1.0.0",
-            "steps":[
-                {"name":"exit42","action":{"kind":"shell","commands":["exit 42"]},"on-return":{"42":"h42"}},
-                {"id":"h42","name":"handler","action":{"kind":"shell","commands":["echo MATCHED_42"]},"meta":{"optional":true}}
-            ]
-        }"#,
-    );
-    let out = bin()
-        .arg(src.path().join("test.json"))
-        .arg("-q")
-        .output()
-        .unwrap();
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(out.status.success(), "should succeed via handler: {stdout}");
-    assert!(stdout.contains("MATCHED_42"), "on-return(42) should fire");
-}
-
-#[test]
-fn graph_shows_edges() {
-    let src = tempfile::tempdir().unwrap();
-    write(
-        &src.path().join("test.json"),
-        r#"{"name":"g","version":"1.0.0","steps":[
-            {"id":"a","name":"A","action":{"kind":"shell","commands":["echo a"]}},
-            {"id":"b","name":"B","depends-on":["a"],"action":{"kind":"shell","commands":["echo b"]}}
-        ]}"#,
-    );
-    let out = bin()
-        .arg(src.path().join("test.json"))
-        .arg("--graph")
-        .output()
-        .unwrap();
-    let stdout = strip_ansi(&String::from_utf8_lossy(&out.stdout));
-    assert!(out.status.success());
-    assert!(stdout.contains("a"), "graph should list step a");
-    assert!(stdout.contains("b"), "graph should list step b");
-}
-
-#[test]
-fn graph_dot_output() {
-    let src = tempfile::tempdir().unwrap();
-    write(
-        &src.path().join("test.json"),
-        r#"{"name":"g","version":"1.0.0","steps":[
-            {"id":"a","name":"A","action":{"kind":"shell","commands":["echo a"]}},
-            {"id":"b","name":"B","depends-on":["a"],"action":{"kind":"shell","commands":["echo b"]}}
-        ]}"#,
-    );
-    let out = bin()
-        .arg(src.path().join("test.json"))
-        .arg("--graph")
-        .arg("--dot")
-        .output()
-        .unwrap();
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(out.status.success());
-    assert!(stdout.contains("digraph"), "should output DOT format");
-    assert!(
-        stdout.contains("\"b\" -> \"a\""),
-        "should have depends-on edge"
-    );
-}
-
-#[test]
-fn rig_action_runs_sub_config() {
-    let src = tempfile::tempdir().unwrap();
-    write(
-        &src.path().join("sub.json"),
-        r#"{"name":"sub","version":"1.0.0","meta":{"vars":{"msg":"default"}},"steps":[{"name":"echo","action":{"kind":"shell","commands":["echo {{msg}}"]}}]}"#,
-    );
-    let sub_path = src.path().join("sub.json").to_str().unwrap().to_string();
-    write(
-        &src.path().join("main.json"),
-        &format!(
-            r#"{{"name":"main","version":"1.0.0","steps":[{{"name":"run-sub","action":{{"kind":"rig","file":"{}","set":{{"msg":"hello"}}}}}}]}}"#,
-            sub_path.replace('\\', "\\\\")
-        ),
-    );
-    let out = bin()
-        .arg(src.path().join("main.json"))
-        .arg("-q")
-        .output()
-        .unwrap();
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(out.status.success(), "rig action should succeed: {stdout}");
-    assert!(
-        stdout.contains("hello"),
-        "sub-config should receive set vars"
-    );
-}
-
-#[test]
-fn parallel_flag_runs_dag_order() {
-    let src = tempfile::tempdir().unwrap();
-    write(
-        &src.path().join("test.json"),
-        r#"{"name":"par","version":"1.0.0","steps":[
-            {"id":"a","name":"A","action":{"kind":"shell","commands":["echo A"]}},
-            {"id":"b","name":"B","depends-on":["a"],"action":{"kind":"shell","commands":["echo B"]}},
-            {"id":"c","name":"C","depends-on":["a"],"action":{"kind":"shell","commands":["echo C"]}}
-        ]}"#,
-    );
-    let out = bin()
-        .arg(src.path().join("test.json"))
-        .arg("--parallel")
-        .arg("-q")
-        .output()
-        .unwrap();
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(out.status.success());
-    // A must appear before B and C
-    let a_pos = stdout.find('A').unwrap();
-    let b_pos = stdout.find('B').unwrap();
-    let c_pos = stdout.find('C').unwrap();
-    assert!(a_pos < b_pos, "A should run before B");
-    assert!(a_pos < c_pos, "A should run before C");
-}
-
-#[test]
-fn no_parallel_overrides_meta_parallel() {
-    let src = tempfile::tempdir().unwrap();
-    write(
-        &src.path().join("test.json"),
-        r#"{"name":"par","version":"1.0.0","meta":{"parallel":true},"steps":[
-            {"id":"a","name":"A","action":{"kind":"shell","commands":["echo A"]}},
-            {"id":"b","name":"B","depends-on":["a"],"action":{"kind":"shell","commands":["echo B"]}}
-        ]}"#,
-    );
-    // With --no-parallel, should run sequentially (A then B in order)
-    let out = bin()
-        .arg(src.path().join("test.json"))
-        .arg("--no-parallel")
-        .arg("-q")
-        .output()
-        .unwrap();
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(out.status.success());
-    assert!(stdout.contains("A"));
-    assert!(stdout.contains("B"));
-    // A must come before B (sequential)
-    assert!(stdout.find('A').unwrap() < stdout.find('B').unwrap());
 }
