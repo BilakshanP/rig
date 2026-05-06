@@ -1,0 +1,46 @@
+// Demonstrates parallel step execution with depends-on.
+//
+// Usage:
+//   rig examples/parallel.jsonc              # sequential (3s)
+//   rig examples/parallel.jsonc --parallel   # parallel (2s — fetch-data and lint overlap)
+//
+// DAG:
+//   install ─┬─ fetch-data ─┐
+//            └─ lint ────────┼─ build ── done
+//
+{
+    "$schema": "../schema.json",
+    "name": "parallel-demo",
+    "version": "1.0.0",
+    "steps": [
+        {
+            "id": "install",
+            "name": "Install dependencies",
+            "action": { "kind": "shell", "commands": ["echo 'installing...' && sleep 1"] }
+        },
+        {
+            "id": "fetch-data",
+            "name": "Fetch data",
+            "depends-on": ["install"],
+            "action": { "kind": "shell", "commands": ["echo 'fetching data...' && sleep 1"] }
+        },
+        {
+            "id": "lint",
+            "name": "Lint",
+            "depends-on": ["install"],
+            "action": { "kind": "shell", "commands": ["echo 'linting...' && sleep 1"] }
+        },
+        {
+            "id": "build",
+            "name": "Build",
+            "depends-on": ["fetch-data", "lint"],
+            "action": { "kind": "shell", "commands": ["echo 'building...'"] }
+        },
+        {
+            "id": "done",
+            "name": "Done",
+            "depends-on": ["build"],
+            "action": { "kind": "io", "level": "info", "message": "All done!" }
+        }
+    ]
+}
