@@ -37,6 +37,7 @@ pub struct Runner {
     pub dry_run: bool,
     pub verbose: bool,
     pub quiet: u8,
+    pub cli_silent: bool,
     pub config_meta: Meta,
     pub scope: RefCell<crate::vars::Scope>,
     /// Present when we're running from a `.rig` bundle: carries the staging
@@ -90,7 +91,7 @@ impl Runner {
             None
         };
         Self {
-            index, dry_run, verbose, quiet: 0, config_meta,
+            index, dry_run, verbose, quiet: 0, cli_silent: false, config_meta,
             scope: RefCell::new(scope),
             bundle,
             log_file: RefCell::new(log_file),
@@ -288,8 +289,9 @@ impl Runner {
 
     fn maybe_print(&self, stdout: &[u8], stderr: &[u8], meta: &StepMeta) {
         let silent = if meta.silent.is_empty() { &self.config_meta.silent } else { &meta.silent };
-        let show_out = self.quiet < 2 && (!silent.contains(&Silent::Stdout) || self.verbose);
-        let show_err = self.quiet < 2 && (!silent.contains(&Silent::Stderr) || self.verbose);
+        let suppressed = self.quiet >= 2 || self.cli_silent;
+        let show_out = !suppressed && (!silent.contains(&Silent::Stdout) || self.verbose);
+        let show_err = !suppressed && (!silent.contains(&Silent::Stderr) || self.verbose);
         if show_out && !stdout.is_empty() { print!("{}", String::from_utf8_lossy(stdout)); }
         if show_err && !stderr.is_empty() { eprint!("{}", String::from_utf8_lossy(stderr)); }
         // Always write to log file

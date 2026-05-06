@@ -30,6 +30,9 @@ struct Cli {
     /// Suppress output (-q: chrome, -qq: all output, -qqq: even errors)
     #[arg(short = 'q', long, action = clap::ArgAction::Count)]
     quiet: u8,
+    /// Suppress command stdout/stderr (show only rig chrome)
+    #[arg(long, short = 's')]
+    silent: bool,
     /// Run only the step with this ID
     #[arg(long)]
     only: Option<String>,
@@ -307,11 +310,13 @@ fn main() -> ExitCode {
         Some(ctx) => {
             let mut r = executor::Runner::new_with_bundle(index, cli.dry_run, cli.verbose, cfg.meta.clone(), scope, ctx);
             r.quiet = cli.quiet;
+            r.cli_silent = cli.silent;
             r
         }
         None => {
             let mut r = executor::Runner::new(index, cli.dry_run, cli.verbose, cfg.meta.clone(), scope);
             r.quiet = cli.quiet;
+            r.cli_silent = cli.silent;
             r
         }
     };
