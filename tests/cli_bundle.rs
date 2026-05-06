@@ -34,7 +34,8 @@ fn pack_and_unpack_roundtrip() {
         .arg("-o")
         .arg(&archive)
         .output()
-        .unwrap().status;
+        .unwrap()
+        .status;
     assert!(status.success(), "pack subcommand failed");
     assert!(archive.is_file());
 
@@ -45,7 +46,8 @@ fn pack_and_unpack_roundtrip() {
         .arg("-o")
         .arg(dst.path())
         .output()
-        .unwrap().status;
+        .unwrap()
+        .status;
     assert!(status.success(), "unpack subcommand failed");
 
     assert!(dst.path().join("manifest.json").is_file());
@@ -81,7 +83,8 @@ fn info_prints_manifest_summary() {
         .arg("-o")
         .arg(&archive)
         .output()
-        .unwrap().status;
+        .unwrap()
+        .status;
     assert!(status.success());
 
     let output = bin().arg("info").arg(&archive).output().unwrap();
@@ -89,12 +92,27 @@ fn info_prints_manifest_summary() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     // Strip ANSI for easier matching.
     let plain = strip_ansi(&stdout);
-    assert!(plain.contains("cli-info-demo"), "output missing name: {plain}");
+    assert!(
+        plain.contains("cli-info-demo"),
+        "output missing name: {plain}"
+    );
     assert!(plain.contains("v2.3.4"), "output missing version: {plain}");
-    assert!(plain.contains("test description"), "output missing description: {plain}");
-    assert!(plain.contains("steps: 1"), "output missing step count: {plain}");
-    assert!(plain.contains("manifest.jsonc"), "output missing manifest entry: {plain}");
-    assert!(plain.contains("assets/blob.bin"), "output missing nested file: {plain}");
+    assert!(
+        plain.contains("test description"),
+        "output missing description: {plain}"
+    );
+    assert!(
+        plain.contains("steps: 1"),
+        "output missing step count: {plain}"
+    );
+    assert!(
+        plain.contains("manifest.jsonc"),
+        "output missing manifest entry: {plain}"
+    );
+    assert!(
+        plain.contains("assets/blob.bin"),
+        "output missing nested file: {plain}"
+    );
 }
 
 #[test]
@@ -137,14 +155,19 @@ fn pack_without_output_flag_derives_rig_suffix() {
     let work = tempfile::tempdir().unwrap();
     let copy_dir = work.path().join("auto");
     std::fs::create_dir_all(&copy_dir).unwrap();
-    std::fs::copy(src.path().join("manifest.json"), copy_dir.join("manifest.json")).unwrap();
+    std::fs::copy(
+        src.path().join("manifest.json"),
+        copy_dir.join("manifest.json"),
+    )
+    .unwrap();
 
     let status = bin()
         .current_dir(work.path())
         .arg("pack")
         .arg("auto")
         .output()
-        .unwrap().status;
+        .unwrap()
+        .status;
     assert!(status.success(), "pack without --output failed");
     assert!(
         work.path().join("auto.rig").is_file(),
@@ -167,7 +190,8 @@ fn unpack_without_output_flag_strips_rig_suffix() {
         .arg("-o")
         .arg(&archive)
         .output()
-        .unwrap().status;
+        .unwrap()
+        .status;
     assert!(status.success());
 
     let status = bin()
@@ -175,7 +199,8 @@ fn unpack_without_output_flag_strips_rig_suffix() {
         .arg("unpack")
         .arg("thing.rig")
         .output()
-        .unwrap().status;
+        .unwrap()
+        .status;
     assert!(status.success(), "unpack without --output failed");
     // Should have created ./thing/ (the .rig suffix stripped) in cwd.
     assert!(
@@ -199,7 +224,8 @@ fn unpack_errors_when_no_rig_suffix_and_no_output() {
         .arg("-o")
         .arg(&archive)
         .output()
-        .unwrap().status;
+        .unwrap()
+        .status;
     assert!(status.success());
 
     let output = bin()
@@ -242,7 +268,8 @@ fn running_a_trivial_bundle_succeeds() {
         .arg("-o")
         .arg(&archive)
         .output()
-        .unwrap().status;
+        .unwrap()
+        .status;
     assert!(status.success());
 
     let output = bin().arg(&archive).output().unwrap();
@@ -286,7 +313,14 @@ fn pack_inspection_bundle() -> (tempfile::TempDir, std::path::PathBuf) {
     );
     let archive_dir = tempfile::tempdir().unwrap();
     let archive = archive_dir.path().join("inspect.rig");
-    let status = bin().arg("pack").arg(src.path()).arg("-o").arg(&archive).output().unwrap().status;
+    let status = bin()
+        .arg("pack")
+        .arg(src.path())
+        .arg("-o")
+        .arg(&archive)
+        .output()
+        .unwrap()
+        .status;
     assert!(status.success());
     (archive_dir, archive)
 }
@@ -295,7 +329,11 @@ fn pack_inspection_bundle() -> (tempfile::TempDir, std::path::PathBuf) {
 fn bundle_validate_succeeds_without_set() {
     let (_guard, archive) = pack_inspection_bundle();
     let output = bin().arg("--validate").arg(&archive).output().unwrap();
-    assert!(output.status.success(), "--validate failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "--validate failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(strip_ansi(&String::from_utf8_lossy(&output.stdout)).contains("ok:"));
 }
 
@@ -305,30 +343,48 @@ fn bundle_list_succeeds_without_set() {
     let output = bin().arg("--list").arg(&archive).output().unwrap();
     assert!(output.status.success());
     let plain = strip_ansi(&String::from_utf8_lossy(&output.stdout));
-    assert!(plain.contains("banner"), "missing banner id in --list: {plain}");
+    assert!(
+        plain.contains("banner"),
+        "missing banner id in --list: {plain}"
+    );
     assert!(plain.contains("noop"), "missing noop id in --list: {plain}");
 }
 
 #[test]
 fn bundle_describe_succeeds_without_set() {
     let (_guard, archive) = pack_inspection_bundle();
-    let output = bin().arg("--describe").arg("banner").arg(&archive).output().unwrap();
+    let output = bin()
+        .arg("--describe")
+        .arg("banner")
+        .arg(&archive)
+        .output()
+        .unwrap();
     assert!(output.status.success());
     let plain = strip_ansi(&String::from_utf8_lossy(&output.stdout));
     assert!(plain.contains("banner step"), "describe output: {plain}");
     // Raw template preserved (no substitution in describe).
-    assert!(plain.contains("{{greeting}}"), "expected raw template in describe: {plain}");
+    assert!(
+        plain.contains("{{greeting}}"),
+        "expected raw template in describe: {plain}"
+    );
 }
 
 #[test]
 fn bundle_vars_lists_undefined() {
     let (_guard, archive) = pack_inspection_bundle();
     let output = bin().arg("--vars").arg(&archive).output().unwrap();
-    assert!(output.status.success(), "--vars failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "--vars failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let plain = strip_ansi(&String::from_utf8_lossy(&output.stdout));
     assert!(plain.contains("greeting"), "missing greeting: {plain}");
     assert!(plain.contains("who"), "missing who: {plain}");
-    assert!(plain.contains("(required)"), "'who' should be marked required: {plain}");
+    assert!(
+        plain.contains("(required)"),
+        "'who' should be marked required: {plain}"
+    );
 }
 
 #[test]
@@ -338,7 +394,10 @@ fn bundle_dry_run_requires_set_vars() {
     let output = bin().arg("--dry-run").arg(&archive).output().unwrap();
     assert!(!output.status.success());
     let stderr = strip_ansi(&String::from_utf8_lossy(&output.stderr));
-    assert!(stderr.contains("undefined variable"), "expected var error, got: {stderr}");
+    assert!(
+        stderr.contains("undefined variable"),
+        "expected var error, got: {stderr}"
+    );
 }
 
 #[test]
@@ -351,10 +410,17 @@ fn bundle_dry_run_succeeds_with_set() {
         .arg("who=world")
         .output()
         .unwrap();
-    assert!(output.status.success(), "--dry-run failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "--dry-run failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let plain = strip_ansi(&String::from_utf8_lossy(&output.stdout));
     assert!(plain.contains("[dry-run]"), "missing dry-run tag: {plain}");
-    assert!(plain.contains("inspect-demo"), "missing config name: {plain}");
+    assert!(
+        plain.contains("inspect-demo"),
+        "missing config name: {plain}"
+    );
 }
 
 #[test]
@@ -368,12 +434,22 @@ fn bundle_only_runs_single_step() {
         .arg("who=world")
         .output()
         .unwrap();
-    assert!(output.status.success(), "--only failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "--only failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let plain = strip_ansi(&String::from_utf8_lossy(&output.stdout));
-    assert!(plain.contains("hi world"), "rendered message missing: {plain}");
+    assert!(
+        plain.contains("hi world"),
+        "rendered message missing: {plain}"
+    );
     // The other step ("noop") should NOT have been recorded in output —
     // --only runs exactly one step.
-    assert!(!plain.contains("noop step"), "--only ran more than one step: {plain}");
+    assert!(
+        !plain.contains("noop step"),
+        "--only ran more than one step: {plain}"
+    );
 }
 
 #[test]
@@ -389,7 +465,14 @@ fn python_project_example_bundle_renders_templates() {
 
     let archive_dir = tempfile::tempdir().unwrap();
     let archive = archive_dir.path().join("python-project.rig");
-    let status = bin().arg("pack").arg(&src_dir).arg("-o").arg(&archive).output().unwrap().status;
+    let status = bin()
+        .arg("pack")
+        .arg(&src_dir)
+        .arg("-o")
+        .arg(&archive)
+        .output()
+        .unwrap()
+        .status;
     assert!(status.success(), "pack failed");
 
     let run_dir = tempfile::tempdir().unwrap();
@@ -429,14 +512,26 @@ fn python_project_example_bundle_renders_templates() {
     assert!(root.is_dir(), "expected output root: {}", root.display());
 
     let pyproject = std::fs::read_to_string(root.join("pyproject.toml")).unwrap();
-    assert!(pyproject.contains("name = \"my-tool\""), "pyproject not rendered: {pyproject}");
-    assert!(pyproject.contains("src/my_tool"), "pyproject package path missing: {pyproject}");
+    assert!(
+        pyproject.contains("name = \"my-tool\""),
+        "pyproject not rendered: {pyproject}"
+    );
+    assert!(
+        pyproject.contains("src/my_tool"),
+        "pyproject package path missing: {pyproject}"
+    );
 
     let cli_py = std::fs::read_to_string(root.join("src/my_tool/cli.py")).unwrap();
-    assert!(cli_py.contains("Hello from my-tool"), "cli.py not rendered: {cli_py}");
+    assert!(
+        cli_py.contains("Hello from my-tool"),
+        "cli.py not rendered: {cli_py}"
+    );
 
     let test_py = std::fs::read_to_string(root.join("tests/test_cli.py")).unwrap();
-    assert!(test_py.contains("import my_tool.cli"), "test_cli.py not rendered: {test_py}");
+    assert!(
+        test_py.contains("import my_tool.cli"),
+        "test_cli.py not rendered: {test_py}"
+    );
 
     assert!(root.join(".python-version").is_file());
     assert!(root.join(".gitignore").is_file());
@@ -482,8 +577,14 @@ fn quiet_qq_suppresses_all_output() {
         .unwrap();
     let stdout = strip_ansi(&String::from_utf8_lossy(&out.stdout));
     assert!(out.status.success());
-    assert!(!stdout.contains("hello"), "command output should be suppressed at -qq");
-    assert!(!stdout.contains("hi"), "io messages should be suppressed at -qq");
+    assert!(
+        !stdout.contains("hello"),
+        "command output should be suppressed at -qq"
+    );
+    assert!(
+        !stdout.contains("hi"),
+        "io messages should be suppressed at -qq"
+    );
 }
 
 #[test]
@@ -502,7 +603,10 @@ fn silent_suppresses_command_output_but_keeps_chrome() {
     assert!(out.status.success());
     assert!(stdout.contains("->"), "chrome should show with --silent");
     assert!(stdout.contains("Done."), "Done should show with --silent");
-    assert!(!stdout.contains("hello"), "command output should be suppressed with --silent");
+    assert!(
+        !stdout.contains("hello"),
+        "command output should be suppressed with --silent"
+    );
 }
 
 #[test]
@@ -520,7 +624,10 @@ fn quiet_and_silent_together_suppresses_everything() {
         .unwrap();
     let stdout = strip_ansi(&String::from_utf8_lossy(&out.stdout));
     assert!(out.status.success());
-    assert!(stdout.trim().is_empty(), "both -q and -s should produce no output");
+    assert!(
+        stdout.trim().is_empty(),
+        "both -q and -s should produce no output"
+    );
 }
 
 #[test]
@@ -537,7 +644,10 @@ fn meta_env_applies_globally() {
         .unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(out.status.success());
-    assert!(stdout.contains("global"), "meta.env should be available to shell commands");
+    assert!(
+        stdout.contains("global"),
+        "meta.env should be available to shell commands"
+    );
 }
 
 #[test]
@@ -554,6 +664,12 @@ fn step_env_overrides_meta_env() {
         .unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(out.status.success());
-    assert!(stdout.contains("local"), "step env should override meta.env");
-    assert!(!stdout.contains("global"), "global value should be overridden");
+    assert!(
+        stdout.contains("local"),
+        "step env should override meta.env"
+    );
+    assert!(
+        !stdout.contains("global"),
+        "global value should be overridden"
+    );
 }

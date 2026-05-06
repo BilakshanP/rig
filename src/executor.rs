@@ -21,13 +21,17 @@ impl fmt::Display for ExecError {
             Self::Command(msg) => write!(f, "{msg}"),
             Self::Io(e) => write!(f, "{e}"),
             Self::StepNotFound(id) => write!(f, "step not found: {id}"),
-            Self::CycleDetected(name) => write!(f, "cycle detected (>{MAX_ENTRIES} entries): {name}"),
+            Self::CycleDetected(name) => {
+                write!(f, "cycle detected (>{MAX_ENTRIES} entries): {name}")
+            }
         }
     }
 }
 
 impl From<std::io::Error> for ExecError {
-    fn from(e: std::io::Error) -> Self { Self::Io(e) }
+    fn from(e: std::io::Error) -> Self {
+        Self::Io(e)
+    }
 }
 
 use std::cell::RefCell;
@@ -84,14 +88,21 @@ impl Runner {
         let log_file = if !dry_run {
             config_meta.log.as_ref().and_then(|p| {
                 let path = crate::path::expand_tilde(p);
-                if let Some(parent) = path.parent() { std::fs::create_dir_all(parent).ok(); }
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent).ok();
+                }
                 std::fs::File::create(&path).ok()
             })
         } else {
             None
         };
         Self {
-            index, dry_run, verbose, quiet: 0, cli_silent: false, config_meta,
+            index,
+            dry_run,
+            verbose,
+            quiet: 0,
+            cli_silent: false,
+            config_meta,
             scope: RefCell::new(scope),
             bundle,
             log_file: RefCell::new(log_file),
@@ -106,10 +117,17 @@ impl Runner {
         }
         #[cfg(windows)]
         if self.config_meta.sudo || steps.iter().any(|s| s.meta.sudo) {
-            println!("{}", style::render("<fy>warning:</f> sudo is not supported on Windows; ignoring sudo flag"));
+            println!(
+                "{}",
+                style::render(
+                    "<fy>warning:</f> sudo is not supported on Windows; ignoring sudo flag"
+                )
+            );
         }
         for step in steps {
-            if step.meta.optional { continue; }
+            if step.meta.optional {
+                continue;
+            }
             self.run_step(step, 0)?;
         }
         Ok(())
@@ -117,7 +135,10 @@ impl Runner {
 
     #[cfg(unix)]
     fn preflight_sudo(&self) -> Result<(), ExecError> {
-        println!("{}", style::render("<fy>sudo required - validating credentials...</f>"));
+        println!(
+            "{}",
+            style::render("<fy>sudo required - validating credentials...</f>")
+        );
         let status = Command::new("sudo").arg("-v").status()?;
         if !status.success() {
             return Err(ExecError::Command("sudo authentication failed".into()));
@@ -133,11 +154,16 @@ impl Runner {
             let mut counts = self.entry_counts.borrow_mut();
             let count = counts.entry(id.clone()).or_insert(0);
             *count += 1;
-            if *count > MAX_ENTRIES { return Err(ExecError::CycleDetected(step.name.clone())); }
+            if *count > MAX_ENTRIES {
+                return Err(ExecError::CycleDetected(step.name.clone()));
+            }
         }
 
         if self.quiet < 1 {
-            println!("{indent}{}", style::render(&format!("<fg>-></f> <mb>{}</m>", step.name)));
+            println!(
+                "{indent}{}",
+                style::render(&format!("<fg>-></f> <mb>{}</m>", step.name))
+            );
         }
 
         let max_retries = step.meta.retries.or(self.config_meta.retries).unwrap_or(0);
@@ -148,10 +174,18 @@ impl Runner {
                 && let Some(delay) = step.meta.retry_delay
             {
                 if !self.dry_run {
-                    println!("{indent}  {}", style::render(&format!("<fy>retrying in {delay}s...</f>")));
+                    println!(
+                        "{indent}  {}",
+                        style::render(&format!("<fy>retrying in {delay}s...</f>"))
+                    );
                     std::thread::sleep(std::time::Duration::from_secs_f64(delay));
                 } else {
-                    println!("{indent}  {}", style::render(&format!("<md>[dry-run]</m> would sleep {delay}s before retry")));
+                    println!(
+                        "{indent}  {}",
+                        style::render(&format!(
+                            "<md>[dry-run]</m> would sleep {delay}s before retry"
+                        ))
+                    );
                 }
             }
 
@@ -163,10 +197,14 @@ impl Runner {
                         self.run_step_refs(refs, depth + 1)?;
                     }
                     // Run then steps
-                    for child in &step.then { self.run_step_ref(child, depth + 1)?; }
+                    for child in &step.then {
+                        self.run_step_ref(child, depth + 1)?;
+                    }
                     return Ok(());
                 }
-                Err(e) => { last_err = Some(e); }
+                Err(e) => {
+                    last_err = Some(e);
+                }
             }
         }
 
@@ -176,24 +214,40 @@ impl Runner {
         if let Some(refs) = handler {
             self.run_step_refs(refs, depth + 1)?;
             // Handler caught it - run then steps
-            for child in &step.then { self.run_step_ref(child, depth + 1)?; }
+            for child in &step.then {
+                self.run_step_ref(child, depth + 1)?;
+            }
             return Ok(());
         }
 
         if step.meta.fallible {
-            if self.quiet < 1 { println!("{indent}  {}", style::render(&format!("<fy>failed (fallible):</f> {err}"))); }
+            if self.quiet < 1 {
+                println!(
+                    "{indent}  {}",
+                    style::render(&format!("<fy>failed (fallible):</f> {err}"))
+                );
+            }
             return Ok(()); // don't run then
         }
         Err(err)
     }
 
     /// Resolve which handler to run. Returns None if no handler matches.
-    fn resolve_handler<'a>(&self, step: &'a Step, code: i32, success: bool) -> Option<&'a [StepRef]> {
+    fn resolve_handler<'a>(
+        &self,
+        step: &'a Step,
+        code: i32,
+        success: bool,
+    ) -> Option<&'a [StepRef]> {
         // Check on-return for exact code
         if let Some(map) = &step.on_return {
             let key = code.to_string();
-            if let Some(refs) = map.get(&key) { return Some(refs); }
-            if let Some(refs) = map.get("_") { return Some(refs); }
+            if let Some(refs) = map.get(&key) {
+                return Some(refs);
+            }
+            if let Some(refs) = map.get("_") {
+                return Some(refs);
+            }
         }
         // Fall back to on-success / on-failure
         if success {
@@ -206,7 +260,10 @@ impl Runner {
     fn run_ref(&self, id: &str, depth: usize) -> Result<(), ExecError> {
         // StepNotFound is defensive: validate_refs catches missing IDs at parse time,
         // but this guards against a StepRef being passed in that wasn't validated.
-        let step = self.index.get(id).ok_or_else(|| ExecError::StepNotFound(id.into()))?;
+        let step = self
+            .index
+            .get(id)
+            .ok_or_else(|| ExecError::StepNotFound(id.into()))?;
         self.run_step(step, depth)
     }
 
@@ -218,7 +275,9 @@ impl Runner {
     }
 
     fn run_step_refs(&self, refs: &[StepRef], depth: usize) -> Result<(), ExecError> {
-        for sr in refs { self.run_step_ref(sr, depth)?; }
+        for sr in refs {
+            self.run_step_ref(sr, depth)?;
+        }
         Ok(())
     }
 
@@ -230,7 +289,8 @@ impl Runner {
 
     /// Resolve the effective ShellConfig: step-level overrides config-level, falls back to platform default.
     fn resolve_shell(&self, meta: &StepMeta) -> crate::config::ShellConfig {
-        meta.shell.clone()
+        meta.shell
+            .clone()
             .or_else(|| self.config_meta.shell.clone())
             .unwrap_or_default()
     }
@@ -242,12 +302,16 @@ impl Runner {
         if use_sudo {
             let mut p = Command::new("sudo");
             p.arg(&shell.cmd);
-            for a in &shell.args { p.arg(a); }
+            for a in &shell.args {
+                p.arg(a);
+            }
             p.arg(cmd);
             p
         } else {
             let mut p = Command::new(&shell.cmd);
-            for a in &shell.args { p.arg(a); }
+            for a in &shell.args {
+                p.arg(a);
+            }
             p.arg(cmd);
             p
         }
@@ -266,10 +330,14 @@ impl Runner {
     /// Apply merged env vars (global meta.env + step-level env) to a Command.
     fn apply_env(&self, proc: &mut Command, step_env: Option<&HashMap<String, String>>) {
         if let Some(global) = &self.config_meta.env {
-            for (k, v) in global { proc.env(k, self.subst(v)); }
+            for (k, v) in global {
+                proc.env(k, self.subst(v));
+            }
         }
         if let Some(e) = step_env {
-            for (k, v) in e { proc.env(k, self.subst(v)); }
+            for (k, v) in e {
+                proc.env(k, self.subst(v));
+            }
         }
     }
 
@@ -284,26 +352,68 @@ impl Runner {
         }
     }
 
-    fn exec_action(&self, action: &Action, meta: &StepMeta, indent: &str, _depth: usize) -> Result<i32, ExecError> {
+    fn exec_action(
+        &self,
+        action: &Action,
+        meta: &StepMeta,
+        indent: &str,
+        _depth: usize,
+    ) -> Result<i32, ExecError> {
         let sudo = meta.sudo || self.config_meta.sudo;
         match action {
-            Action::Shell { commands, dir, env } => self.exec_shell(commands, dir.as_deref(), env.as_ref(), meta, indent, sudo),
-            Action::Git { repo, dest, on_conflict } => { self.exec_git(repo, dest, on_conflict, meta, indent)?; Ok(0) }
-            Action::Fs { op, if_exists, if_not_exists } => { self.exec_fs(op, if_exists.as_ref(), if_not_exists.as_ref(), indent)?; Ok(0) }
-            Action::Io { op } => { self.exec_io(op, meta, indent)?; Ok(0) }
-            Action::Var { name, source } => { self.exec_var(name, source, meta, indent)?; Ok(0) }
-            Action::Cond { cmp, when, default } => { self.exec_cond(cmp, when, default.as_deref(), indent, _depth)?; Ok(0) }
-            Action::Rig { file, set } => { self.exec_rig(file, set.as_ref(), indent, _depth)?; Ok(0) }
+            Action::Shell { commands, dir, env } => {
+                self.exec_shell(commands, dir.as_deref(), env.as_ref(), meta, indent, sudo)
+            }
+            Action::Git {
+                repo,
+                dest,
+                on_conflict,
+            } => {
+                self.exec_git(repo, dest, on_conflict, meta, indent)?;
+                Ok(0)
+            }
+            Action::Fs {
+                op,
+                if_exists,
+                if_not_exists,
+            } => {
+                self.exec_fs(op, if_exists.as_ref(), if_not_exists.as_ref(), indent)?;
+                Ok(0)
+            }
+            Action::Io { op } => {
+                self.exec_io(op, meta, indent)?;
+                Ok(0)
+            }
+            Action::Var { name, source } => {
+                self.exec_var(name, source, meta, indent)?;
+                Ok(0)
+            }
+            Action::Cond { cmp, when, default } => {
+                self.exec_cond(cmp, when, default.as_deref(), indent, _depth)?;
+                Ok(0)
+            }
+            Action::Rig { file, set } => {
+                self.exec_rig(file, set.as_ref(), indent, _depth)?;
+                Ok(0)
+            }
         }
     }
 
     fn maybe_print(&self, stdout: &[u8], stderr: &[u8], meta: &StepMeta) {
-        let silent = if meta.silent.is_empty() { &self.config_meta.silent } else { &meta.silent };
+        let silent = if meta.silent.is_empty() {
+            &self.config_meta.silent
+        } else {
+            &meta.silent
+        };
         let suppressed = self.quiet >= 2 || self.cli_silent;
         let show_out = !suppressed && (!silent.contains(&Silent::Stdout) || self.verbose);
         let show_err = !suppressed && (!silent.contains(&Silent::Stderr) || self.verbose);
-        if show_out && !stdout.is_empty() { print!("{}", String::from_utf8_lossy(stdout)); }
-        if show_err && !stderr.is_empty() { eprint!("{}", String::from_utf8_lossy(stderr)); }
+        if show_out && !stdout.is_empty() {
+            print!("{}", String::from_utf8_lossy(stdout));
+        }
+        if show_err && !stderr.is_empty() {
+            eprint!("{}", String::from_utf8_lossy(stderr));
+        }
         // Always write to log file
         self.write_log_bytes(stdout);
         self.write_log_bytes(stderr);
@@ -342,18 +452,26 @@ impl Runner {
             if self.dry_run {
                 let prefix = self.shell_prefix(meta, sudo);
                 println!("{indent}  [dry-run] {prefix} {cmd:?}");
-                if let Some(d) = dir { println!("{indent}    dir: {}", self.subst(d)); }
-                if let Some(e) = env { println!("{indent}    env: {e:?}"); }
+                if let Some(d) = dir {
+                    println!("{indent}    dir: {}", self.subst(d));
+                }
+                if let Some(e) = env {
+                    println!("{indent}    env: {e:?}");
+                }
                 continue;
             }
             let mut proc = self.shell_command(&cmd, meta, sudo);
-            if let Some(d) = dir { proc.current_dir(expand_tilde(&self.subst(d))); }
+            if let Some(d) = dir {
+                proc.current_dir(expand_tilde(&self.subst(d)));
+            }
             self.apply_env(&mut proc, env);
             let output = proc.output()?;
             last_code = output.status.code().unwrap_or(-1);
             self.maybe_print(&output.stdout, &output.stderr, meta);
             if !output.status.success() {
-                return Err(ExecError::Command(format!("command failed (exit {last_code}): {cmd}")));
+                return Err(ExecError::Command(format!(
+                    "command failed (exit {last_code}): {cmd}"
+                )));
             }
         }
         Ok(last_code)
@@ -361,7 +479,13 @@ impl Runner {
 
     // -- Var --
 
-    fn exec_var(&self, name: &str, source: &VarSource, meta: &StepMeta, indent: &str) -> Result<(), ExecError> {
+    fn exec_var(
+        &self,
+        name: &str,
+        source: &VarSource,
+        meta: &StepMeta,
+        indent: &str,
+    ) -> Result<(), ExecError> {
         // Parse and validate the name.
         let vr = crate::vars::VarRef::parse(name)
             .ok_or_else(|| ExecError::Command(format!("invalid variable name: {name}")))?;
@@ -394,32 +518,59 @@ impl Runner {
                 if !output.status.success() {
                     return Err(ExecError::Command(format!("var command failed: {cmd}")));
                 }
-                let value = String::from_utf8_lossy(&output.stdout).trim_end_matches('\n').to_string();
+                let value = String::from_utf8_lossy(&output.stdout)
+                    .trim_end_matches('\n')
+                    .to_string();
                 self.scope.borrow_mut().set(&key, value.clone());
-                println!("{indent}  {}", style::render(&format!("<fg>set</f> <mb>{key}</m> = {value:?}")));
+                println!(
+                    "{indent}  {}",
+                    style::render(&format!("<fg>set</f> <mb>{key}</m> = {value:?}"))
+                );
             }
             VarSource::From { from } => {
                 // Run the referenced step as a shell action and capture stdout.
-                let step = resolve_step_ref(from, &self.index).map_err(|id| ExecError::StepNotFound(id.into()))?;
+                let step = resolve_step_ref(from, &self.index)
+                    .map_err(|id| ExecError::StepNotFound(id.into()))?;
                 let output = self.capture_step_stdout(&step)?;
                 let value = output.trim_end_matches('\n').to_string();
                 self.scope.borrow_mut().set(&key, value.clone());
-                println!("{indent}  {}", style::render(&format!("<fg>set</f> <mb>{key}</m> \\<- {} stdout", step.name)));
+                println!(
+                    "{indent}  {}",
+                    style::render(&format!(
+                        "<fg>set</f> <mb>{key}</m> \\<- {} stdout",
+                        step.name
+                    ))
+                );
             }
             VarSource::To { to } => {
                 // Feed the variable's current value as stdin to the referenced step.
-                let value = self.scope.borrow().get(&key).map(|s| s.to_string())
+                let value = self
+                    .scope
+                    .borrow()
+                    .get(&key)
+                    .map(|s| s.to_string())
                     .ok_or_else(|| ExecError::Command(format!("var '{key}' is not set")))?;
-                let step = resolve_step_ref(to, &self.index).map_err(|id| ExecError::StepNotFound(id.into()))?;
+                let step = resolve_step_ref(to, &self.index)
+                    .map_err(|id| ExecError::StepNotFound(id.into()))?;
                 self.feed_step_stdin(&step, &value)?;
-                println!("{indent}  {}", style::render(&format!("<fg>fed</f> <mb>{key}</m> -> {}", step.name)));
+                println!(
+                    "{indent}  {}",
+                    style::render(&format!("<fg>fed</f> <mb>{key}</m> -> {}", step.name))
+                );
             }
             VarSource::File { file } => {
                 let path = crate::path::expand_tilde(&self.subst(file));
-                let contents = std::fs::read_to_string(&path)
-                    .map_err(|e| ExecError::Command(format!("failed to read {}: {e}", path.display())))?;
+                let contents = std::fs::read_to_string(&path).map_err(|e| {
+                    ExecError::Command(format!("failed to read {}: {e}", path.display()))
+                })?;
                 self.scope.borrow_mut().set(&key, contents);
-                println!("{indent}  {}", style::render(&format!("<fg>set</f> <mb>{key}</m> \\<- {}", path.display())));
+                println!(
+                    "{indent}  {}",
+                    style::render(&format!(
+                        "<fg>set</f> <mb>{key}</m> \\<- {}",
+                        path.display()
+                    ))
+                );
             }
         }
         Ok(())
@@ -467,13 +618,17 @@ impl Runner {
         // Build cli_vars: parent scope values + set overrides (substituted)
         let mut cli_vars: HashMap<String, String> = self.scope.borrow().all_values();
         if let Some(s) = set {
-            for (k, v) in s { cli_vars.insert(k.clone(), self.subst(v)); }
+            for (k, v) in s {
+                cli_vars.insert(k.clone(), self.subst(v));
+            }
         }
 
         if self.dry_run {
             println!("{indent}  [dry-run] rig {file:?}");
             if let Some(s) = set {
-                for (k, v) in s { println!("{indent}    set {k} = {v}"); }
+                for (k, v) in s {
+                    println!("{indent}    set {k} = {v}");
+                }
             }
             return Ok(());
         }
@@ -485,13 +640,24 @@ impl Runner {
         // Build scope for sub-config
         let sub_scope = crate::config::build_scope(&cfg, &cli_vars);
         let sub_index = crate::config::build_step_index(&cfg);
-        let sub_runner = Runner::new(sub_index, self.dry_run, self.verbose, cfg.meta.clone(), sub_scope);
+        let sub_runner = Runner::new(
+            sub_index,
+            self.dry_run,
+            self.verbose,
+            cfg.meta.clone(),
+            sub_scope,
+        );
 
         if self.quiet < 1 {
-            println!("{indent}  {}", style::render(&format!("<fc>rig:</f> <mb>{}</m>", cfg.name)));
+            println!(
+                "{indent}  {}",
+                style::render(&format!("<fc>rig:</f> <mb>{}</m>", cfg.name))
+            );
         }
         for step in &cfg.steps {
-            if step.meta.optional { continue; }
+            if step.meta.optional {
+                continue;
+            }
             sub_runner.run_step(step, depth + 1)?;
         }
         Ok(())
@@ -506,17 +672,25 @@ impl Runner {
                 for cmd in commands {
                     let cmd = self.subst(cmd);
                     let mut proc = self.shell_command(&cmd, &step.meta, sudo);
-                    if let Some(d) = dir { proc.current_dir(crate::path::expand_tilde(&self.subst(d))); }
+                    if let Some(d) = dir {
+                        proc.current_dir(crate::path::expand_tilde(&self.subst(d)));
+                    }
                     self.apply_env(&mut proc, env.as_ref());
                     let output = proc.output()?;
                     if !output.status.success() {
-                        return Err(ExecError::Command(format!("captured step failed: {}", step.name)));
+                        return Err(ExecError::Command(format!(
+                            "captured step failed: {}",
+                            step.name
+                        )));
                     }
                     acc.push_str(&String::from_utf8_lossy(&output.stdout));
                 }
                 Ok(acc)
             }
-            _ => Err(ExecError::Command(format!("var from: step '{}' must be shell action", step.name))),
+            _ => Err(ExecError::Command(format!(
+                "var from: step '{}' must be shell action",
+                step.name
+            ))),
         }
     }
 
@@ -527,24 +701,36 @@ impl Runner {
                 let sudo = step.meta.sudo || self.config_meta.sudo;
                 for cmd in commands {
                     let cmd = self.subst(cmd);
-                    use std::process::Stdio;
                     use std::io::Write;
+                    use std::process::Stdio;
                     let mut proc = self.shell_command(&cmd, &step.meta, sudo);
-                    if let Some(d) = dir { proc.current_dir(crate::path::expand_tilde(&self.subst(d))); }
+                    if let Some(d) = dir {
+                        proc.current_dir(crate::path::expand_tilde(&self.subst(d)));
+                    }
                     self.apply_env(&mut proc, env.as_ref());
-                    let mut child = proc.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+                    let mut child = proc
+                        .stdin(Stdio::piped())
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::piped())
+                        .spawn()?;
                     if let Some(mut stdin) = child.stdin.take() {
                         stdin.write_all(input.as_bytes())?;
                     }
                     let output = child.wait_with_output()?;
                     self.maybe_print(&output.stdout, &output.stderr, &step.meta);
                     if !output.status.success() {
-                        return Err(ExecError::Command(format!("fed step failed: {}", step.name)));
+                        return Err(ExecError::Command(format!(
+                            "fed step failed: {}",
+                            step.name
+                        )));
                     }
                 }
                 Ok(())
             }
-            _ => Err(ExecError::Command(format!("var to: step '{}' must be shell action", step.name))),
+            _ => Err(ExecError::Command(format!(
+                "var to: step '{}' must be shell action",
+                step.name
+            ))),
         }
     }
 
@@ -552,13 +738,20 @@ impl Runner {
 
     fn exec_io(&self, op: &IoOp, _meta: &StepMeta, indent: &str) -> Result<(), ExecError> {
         match op {
-            IoOp::Write { level, message, markup } => {
+            IoOp::Write {
+                level,
+                message,
+                markup,
+            } => {
                 self.io_write(level, message, *markup, indent);
                 Ok(())
             }
-            IoOp::Read { read, prompt, default, secret } => {
-                self.io_read(read, prompt.as_deref(), default.as_deref(), *secret, indent)
-            }
+            IoOp::Read {
+                read,
+                prompt,
+                default,
+                secret,
+            } => self.io_read(read, prompt.as_deref(), default.as_deref(), *secret, indent),
         }
     }
 
@@ -576,12 +769,27 @@ impl Runner {
         };
         let line = match level {
             IoLevel::Log => format!("{indent}  {text}"),
-            IoLevel::Info => format!("{indent}  {}", style::render(&format!("<fc>info:</f> {text}"))),
-            IoLevel::Warn => format!("{indent}  {}", style::render(&format!("<fy>warn:</f> {text}"))),
-            IoLevel::Error => format!("{indent}  {}", style::render(&format!("<fr>error:</f> {text}"))),
+            IoLevel::Info => format!(
+                "{indent}  {}",
+                style::render(&format!("<fc>info:</f> {text}"))
+            ),
+            IoLevel::Warn => format!(
+                "{indent}  {}",
+                style::render(&format!("<fy>warn:</f> {text}"))
+            ),
+            IoLevel::Error => format!(
+                "{indent}  {}",
+                style::render(&format!("<fr>error:</f> {text}"))
+            ),
         };
-        if self.quiet < 2 { println!("{line}"); }
-        let plain = if markup { message.to_string() } else { text.clone() };
+        if self.quiet < 2 {
+            println!("{line}");
+        }
+        let plain = if markup {
+            message.to_string()
+        } else {
+            text.clone()
+        };
         let prefix = match level {
             IoLevel::Log => "LOG",
             IoLevel::Info => "INFO",
@@ -591,11 +799,21 @@ impl Runner {
         self.write_log(&format!("[{prefix}] {plain}"));
     }
 
-    fn io_read(&self, read: &str, prompt: Option<&str>, default: Option<&str>, secret: bool, indent: &str) -> Result<(), ExecError> {
+    fn io_read(
+        &self,
+        read: &str,
+        prompt: Option<&str>,
+        default: Option<&str>,
+        secret: bool,
+        indent: &str,
+    ) -> Result<(), ExecError> {
         let vr = crate::vars::VarRef::parse(read)
             .ok_or_else(|| ExecError::Command(format!("invalid io read target: {read}")))?;
         if !vr.is_runtime_writable() {
-            return Err(ExecError::Command(format!("io read target '{}' is not runtime-writable", vr.display())));
+            return Err(ExecError::Command(format!(
+                "io read target '{}' is not runtime-writable",
+                vr.display()
+            )));
         }
         let key = vr.key();
 
@@ -631,7 +849,8 @@ impl Runner {
                 std::io::stdout().flush().ok();
             }
             let mut buf = String::new();
-            std::io::stdin().read_line(&mut buf)
+            std::io::stdin()
+                .read_line(&mut buf)
                 .map_err(|e| ExecError::Command(format!("stdin read failed: {e}")))?;
             buf.trim_end_matches(['\n', '\r']).to_string()
         };
@@ -640,7 +859,10 @@ impl Runner {
             match default {
                 Some(d) => d.to_string(),
                 None => {
-                    println!("{indent}  {}", style::render(&format!("<fy>read {key} unset (no input, no default)</f>")));
+                    println!(
+                        "{indent}  {}",
+                        style::render(&format!("<fy>read {key} unset (no input, no default)</f>"))
+                    );
                     return Ok(());
                 }
             }
@@ -648,15 +870,29 @@ impl Runner {
             line
         };
 
-        let display = if secret { "****".to_string() } else { format!("{value:?}") };
+        let display = if secret {
+            "****".to_string()
+        } else {
+            format!("{value:?}")
+        };
         self.scope.borrow_mut().set(&key, value);
-        println!("{indent}  {}", style::render(&format!("<fg>read</f> <mb>{key}</m> = {display}")));
+        println!(
+            "{indent}  {}",
+            style::render(&format!("<fg>read</f> <mb>{key}</m> = {display}"))
+        );
         Ok(())
     }
 
     // -- Git --
 
-    fn exec_git(&self, repo: &str, dest: &str, on_conflict: &GitOnConflict, meta: &StepMeta, indent: &str) -> Result<(), ExecError> {
+    fn exec_git(
+        &self,
+        repo: &str,
+        dest: &str,
+        on_conflict: &GitOnConflict,
+        meta: &StepMeta,
+        indent: &str,
+    ) -> Result<(), ExecError> {
         let repo = self.subst(repo);
         let dest = self.subst(dest);
         let dest_path = expand_tilde(&dest);
@@ -664,33 +900,58 @@ impl Runner {
 
         if self.dry_run {
             if exists {
-                println!("{indent}  [dry-run] dest {} exists -> {on_conflict:?}", dest_path.display());
+                println!(
+                    "{indent}  [dry-run] dest {} exists -> {on_conflict:?}",
+                    dest_path.display()
+                );
             } else {
-                println!("{indent}  [dry-run] git clone {repo} {}", dest_path.display());
+                println!(
+                    "{indent}  [dry-run] git clone {repo} {}",
+                    dest_path.display()
+                );
             }
             return Ok(());
         }
 
         if !exists {
-            let output = Command::new("git").args(["clone", &repo, &dest_path.to_string_lossy()]).output()?;
+            let output = Command::new("git")
+                .args(["clone", &repo, &dest_path.to_string_lossy()])
+                .output()?;
             self.maybe_print(&output.stdout, &output.stderr, meta);
             if !output.status.success() {
-                return Err(ExecError::Command(format!("git clone failed ({})", output.status)));
+                return Err(ExecError::Command(format!(
+                    "git clone failed ({})",
+                    output.status
+                )));
             }
             return Ok(());
         }
 
         match on_conflict {
-            GitOnConflict::Skip => println!("{indent}  {}", style::render(&format!("<fy>skipped (exists):</f> {}", dest_path.display()))),
+            GitOnConflict::Skip => println!(
+                "{indent}  {}",
+                style::render(&format!(
+                    "<fy>skipped (exists):</f> {}",
+                    dest_path.display()
+                ))
+            ),
             GitOnConflict::Pull => {
-                let output = Command::new("git").args(["-C", &dest_path.to_string_lossy(), "pull"]).output()?;
+                let output = Command::new("git")
+                    .args(["-C", &dest_path.to_string_lossy(), "pull"])
+                    .output()?;
                 self.maybe_print(&output.stdout, &output.stderr, meta);
                 if !output.status.success() {
-                    return Err(ExecError::Command(format!("git pull failed ({})", output.status)));
+                    return Err(ExecError::Command(format!(
+                        "git pull failed ({})",
+                        output.status
+                    )));
                 }
             }
             GitOnConflict::Fail => {
-                return Err(ExecError::Command(format!("dest already exists: {}", dest_path.display())));
+                return Err(ExecError::Command(format!(
+                    "dest already exists: {}",
+                    dest_path.display()
+                )));
             }
         }
         Ok(())
@@ -698,17 +959,53 @@ impl Runner {
 
     // -- FS --
 
-    fn exec_fs(&self, op: &FsOp, if_exists: Option<&Condition>, if_not_exists: Option<&Condition>, indent: &str) -> Result<(), ExecError> {
+    fn exec_fs(
+        &self,
+        op: &FsOp,
+        if_exists: Option<&Condition>,
+        if_not_exists: Option<&Condition>,
+        indent: &str,
+    ) -> Result<(), ExecError> {
         match op {
-            FsOp::Create { path, recurse, content, expand } => self.fs_create(path, *recurse, content.as_deref(), *expand, if_exists, indent),
-            FsOp::Symlink { from, to, expand } => self.fs_symlink(from, to, *expand, if_exists, indent),
-            FsOp::Copy { from, to, expand } => self.fs_copy(from, to, *expand, if_exists, if_not_exists, indent),
-            FsOp::Move { from, to, expand } => self.fs_move(from, to, *expand, if_exists, if_not_exists, indent),
-            FsOp::Delete { path, recurse, expand } => self.fs_delete(path, *recurse, *expand, if_not_exists, indent),
+            FsOp::Create {
+                path,
+                recurse,
+                content,
+                expand,
+            } => self.fs_create(
+                path,
+                *recurse,
+                content.as_deref(),
+                *expand,
+                if_exists,
+                indent,
+            ),
+            FsOp::Symlink { from, to, expand } => {
+                self.fs_symlink(from, to, *expand, if_exists, indent)
+            }
+            FsOp::Copy { from, to, expand } => {
+                self.fs_copy(from, to, *expand, if_exists, if_not_exists, indent)
+            }
+            FsOp::Move { from, to, expand } => {
+                self.fs_move(from, to, *expand, if_exists, if_not_exists, indent)
+            }
+            FsOp::Delete {
+                path,
+                recurse,
+                expand,
+            } => self.fs_delete(path, *recurse, *expand, if_not_exists, indent),
         }
     }
 
-    fn fs_create(&self, path: &[String], recurse: bool, content: Option<&str>, expand: ExpandFlags, if_exists: Option<&Condition>, indent: &str) -> Result<(), ExecError> {
+    fn fs_create(
+        &self,
+        path: &[String],
+        recurse: bool,
+        content: Option<&str>,
+        expand: ExpandFlags,
+        if_exists: Option<&Condition>,
+        indent: &str,
+    ) -> Result<(), ExecError> {
         for p in path {
             let p = self.expand_s(expand.path, p);
             let full = expand_tilde(&p);
@@ -720,7 +1017,9 @@ impl Runner {
             if self.dry_run {
                 let kind = if is_dir { "dir" } else { "file" };
                 println!("{indent}  [dry-run] create {kind}: {}", full.display());
-                if let Some(c) = content { println!("{indent}    content: {c:?}"); }
+                if let Some(c) = content {
+                    println!("{indent}    content: {c:?}");
+                }
                 continue;
             }
             let mut append_mode = false;
@@ -730,17 +1029,31 @@ impl Runner {
                     CondResult::Proceed => {}
                     CondResult::Append => {
                         if is_dir {
-                            return Err(ExecError::Command(format!("cannot append to directory: {}", full.display())));
+                            return Err(ExecError::Command(format!(
+                                "cannot append to directory: {}",
+                                full.display()
+                            )));
                         }
                         append_mode = true;
                     }
-                    CondResult::Panic => return Err(ExecError::Command(format!("already exists: {}", full.display()))),
+                    CondResult::Panic => {
+                        return Err(ExecError::Command(format!(
+                            "already exists: {}",
+                            full.display()
+                        )));
+                    }
                 }
             }
             if is_dir {
-                if recurse { std::fs::create_dir_all(&full)?; } else { std::fs::create_dir(&full)?; }
+                if recurse {
+                    std::fs::create_dir_all(&full)?;
+                } else {
+                    std::fs::create_dir(&full)?;
+                }
             } else {
-                if recurse && let Some(parent) = full.parent() { std::fs::create_dir_all(parent)?; }
+                if recurse && let Some(parent) = full.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
                 if let Some(c) = content {
                     if append_mode {
                         use std::io::Write;
@@ -753,27 +1066,58 @@ impl Runner {
                     std::fs::File::create(&full)?;
                 }
             }
-            let verb = if append_mode { "appended to" } else { "created" };
-            if self.quiet < 1 { println!("{indent}  {}", style::render(&format!("<fg>{verb}:</f> {}", full.display()))); }
+            let verb = if append_mode {
+                "appended to"
+            } else {
+                "created"
+            };
+            if self.quiet < 1 {
+                println!(
+                    "{indent}  {}",
+                    style::render(&format!("<fg>{verb}:</f> {}", full.display()))
+                );
+            }
         }
         Ok(())
     }
 
-    fn fs_symlink(&self, from: &str, to: &str, expand: ExpandFlags, if_exists: Option<&Condition>, indent: &str) -> Result<(), ExecError> {
+    fn fs_symlink(
+        &self,
+        from: &str,
+        to: &str,
+        expand: ExpandFlags,
+        if_exists: Option<&Condition>,
+        indent: &str,
+    ) -> Result<(), ExecError> {
         let from = self.expand_s(expand.from, from);
         let to = self.expand_s(expand.to, to);
         let src = expand_tilde(&from);
         let dst = expand_tilde(&to);
         if self.dry_run {
-            println!("{indent}  [dry-run] symlink {} -> {}", src.display(), dst.display());
+            println!(
+                "{indent}  [dry-run] symlink {} -> {}",
+                src.display(),
+                dst.display()
+            );
             return Ok(());
         }
         if dst.exists() || dst.is_symlink() {
             match self.handle_condition(if_exists, indent)? {
                 CondResult::Skip => return Ok(()),
-                CondResult::Proceed => { std::fs::remove_file(&dst).or_else(|_| std::fs::remove_dir_all(&dst))?; }
-                CondResult::Append => return Err(ExecError::Command("append not supported for symlink".into())),
-                CondResult::Panic => return Err(ExecError::Command(format!("already exists: {}", dst.display()))),
+                CondResult::Proceed => {
+                    std::fs::remove_file(&dst).or_else(|_| std::fs::remove_dir_all(&dst))?;
+                }
+                CondResult::Append => {
+                    return Err(ExecError::Command(
+                        "append not supported for symlink".into(),
+                    ));
+                }
+                CondResult::Panic => {
+                    return Err(ExecError::Command(format!(
+                        "already exists: {}",
+                        dst.display()
+                    )));
+                }
             }
         }
         #[cfg(unix)]
@@ -796,28 +1140,56 @@ impl Runner {
                 }
             })?;
         }
-        println!("{indent}  {}", style::render(&format!("<fg>symlinked</f> {} -> {}", src.display(), dst.display())));
+        println!(
+            "{indent}  {}",
+            style::render(&format!(
+                "<fg>symlinked</f> {} -> {}",
+                src.display(),
+                dst.display()
+            ))
+        );
         Ok(())
     }
 
-    fn fs_copy(&self, from: &str, to: &str, expand: ExpandFlags, if_exists: Option<&Condition>, if_not_exists: Option<&Condition>, indent: &str) -> Result<(), ExecError> {
+    fn fs_copy(
+        &self,
+        from: &str,
+        to: &str,
+        expand: ExpandFlags,
+        if_exists: Option<&Condition>,
+        if_not_exists: Option<&Condition>,
+        indent: &str,
+    ) -> Result<(), ExecError> {
         let from = self.expand_s(expand.from, from);
         let to = self.expand_s(expand.to, to);
         let src = expand_tilde(&from);
         let dst = expand_tilde(&to);
         if self.dry_run {
             let mode = self.copy_mode_label(&src, expand.contents);
-            println!("{indent}  [dry-run] copy {} -> {} {mode}", src.display(), dst.display());
+            println!(
+                "{indent}  [dry-run] copy {} -> {} {mode}",
+                src.display(),
+                dst.display()
+            );
             return Ok(());
         }
-        if !src.exists() { return self.handle_not_exists(if_not_exists, &src, indent); }
+        if !src.exists() {
+            return self.handle_not_exists(if_not_exists, &src, indent);
+        }
         let mut append_mode = false;
         if dst.exists() {
             match self.handle_condition(if_exists, indent)? {
                 CondResult::Skip => return Ok(()),
                 CondResult::Proceed => {}
-                CondResult::Append => { append_mode = true; }
-                CondResult::Panic => return Err(ExecError::Command(format!("already exists: {}", dst.display()))),
+                CondResult::Append => {
+                    append_mode = true;
+                }
+                CondResult::Panic => {
+                    return Err(ExecError::Command(format!(
+                        "already exists: {}",
+                        dst.display()
+                    )));
+                }
             }
         }
 
@@ -839,14 +1211,35 @@ impl Runner {
             let mut f = std::fs::OpenOptions::new().append(true).open(&dst)?;
             f.write_all(&bytes)?;
             let tag = if render_contents { " (rendered)" } else { "" };
-            println!("{indent}  {}", style::render(&format!("<fg>appended{tag}</f> {} -> {}", src.display(), dst.display())));
+            println!(
+                "{indent}  {}",
+                style::render(&format!(
+                    "<fg>appended{tag}</f> {} -> {}",
+                    src.display(),
+                    dst.display()
+                ))
+            );
         } else if render_contents {
             let bytes = self.read_for_copy(&src, true)?;
             std::fs::write(&dst, &bytes)?;
-            println!("{indent}  {}", style::render(&format!("<fg>copied (rendered)</f> {} -> {}", src.display(), dst.display())));
+            println!(
+                "{indent}  {}",
+                style::render(&format!(
+                    "<fg>copied (rendered)</f> {} -> {}",
+                    src.display(),
+                    dst.display()
+                ))
+            );
         } else {
             std::fs::copy(&src, &dst)?;
-            println!("{indent}  {}", style::render(&format!("<fg>copied</f> {} -> {}", src.display(), dst.display())));
+            println!(
+                "{indent}  {}",
+                style::render(&format!(
+                    "<fg>copied</f> {} -> {}",
+                    src.display(),
+                    dst.display()
+                ))
+            );
         }
         Ok(())
     }
@@ -900,30 +1293,67 @@ impl Runner {
         }
     }
 
-    fn fs_move(&self, from: &str, to: &str, expand: ExpandFlags, if_exists: Option<&Condition>, if_not_exists: Option<&Condition>, indent: &str) -> Result<(), ExecError> {
+    fn fs_move(
+        &self,
+        from: &str,
+        to: &str,
+        expand: ExpandFlags,
+        if_exists: Option<&Condition>,
+        if_not_exists: Option<&Condition>,
+        indent: &str,
+    ) -> Result<(), ExecError> {
         let from = self.expand_s(expand.from, from);
         let to = self.expand_s(expand.to, to);
         let src = expand_tilde(&from);
         let dst = expand_tilde(&to);
         if self.dry_run {
-            println!("{indent}  [dry-run] move {} -> {}", src.display(), dst.display());
+            println!(
+                "{indent}  [dry-run] move {} -> {}",
+                src.display(),
+                dst.display()
+            );
             return Ok(());
         }
-        if !src.exists() { return self.handle_not_exists(if_not_exists, &src, indent); }
+        if !src.exists() {
+            return self.handle_not_exists(if_not_exists, &src, indent);
+        }
         if dst.exists() {
             match self.handle_condition(if_exists, indent)? {
                 CondResult::Skip => return Ok(()),
-                CondResult::Proceed => { std::fs::remove_file(&dst).or_else(|_| std::fs::remove_dir_all(&dst))?; }
-                CondResult::Append => return Err(ExecError::Command("append not supported for move".into())),
-                CondResult::Panic => return Err(ExecError::Command(format!("already exists: {}", dst.display()))),
+                CondResult::Proceed => {
+                    std::fs::remove_file(&dst).or_else(|_| std::fs::remove_dir_all(&dst))?;
+                }
+                CondResult::Append => {
+                    return Err(ExecError::Command("append not supported for move".into()));
+                }
+                CondResult::Panic => {
+                    return Err(ExecError::Command(format!(
+                        "already exists: {}",
+                        dst.display()
+                    )));
+                }
             }
         }
         std::fs::rename(&src, &dst)?;
-        println!("{indent}  {}", style::render(&format!("<fg>moved</f> {} -> {}", src.display(), dst.display())));
+        println!(
+            "{indent}  {}",
+            style::render(&format!(
+                "<fg>moved</f> {} -> {}",
+                src.display(),
+                dst.display()
+            ))
+        );
         Ok(())
     }
 
-    fn fs_delete(&self, path: &[String], recurse: bool, expand: ExpandFlags, if_not_exists: Option<&Condition>, indent: &str) -> Result<(), ExecError> {
+    fn fs_delete(
+        &self,
+        path: &[String],
+        recurse: bool,
+        expand: ExpandFlags,
+        if_not_exists: Option<&Condition>,
+        indent: &str,
+    ) -> Result<(), ExecError> {
         for p in path {
             let p = self.expand_s(expand.path, p);
             let full = expand_tilde(&p);
@@ -936,18 +1366,29 @@ impl Runner {
                 continue;
             }
             if full.is_dir() {
-                if recurse { std::fs::remove_dir_all(&full)?; } else { std::fs::remove_dir(&full)?; }
+                if recurse {
+                    std::fs::remove_dir_all(&full)?;
+                } else {
+                    std::fs::remove_dir(&full)?;
+                }
             } else {
                 std::fs::remove_file(&full)?;
             }
-            println!("{indent}  {}", style::render(&format!("<fg>deleted:</f> {}", full.display())));
+            println!(
+                "{indent}  {}",
+                style::render(&format!("<fg>deleted:</f> {}", full.display()))
+            );
         }
         Ok(())
     }
 
     // -- Condition helpers --
 
-    fn handle_condition(&self, cond: Option<&Condition>, _indent: &str) -> Result<CondResult, ExecError> {
+    fn handle_condition(
+        &self,
+        cond: Option<&Condition>,
+        _indent: &str,
+    ) -> Result<CondResult, ExecError> {
         match cond {
             None | Some(Condition::Action(ConditionAction::Panic)) => Ok(CondResult::Panic),
             Some(Condition::Action(ConditionAction::Skip)) => Ok(CondResult::Skip),
@@ -960,12 +1401,22 @@ impl Runner {
         }
     }
 
-    fn handle_not_exists(&self, cond: Option<&Condition>, path: &std::path::Path, _indent: &str) -> Result<(), ExecError> {
+    fn handle_not_exists(
+        &self,
+        cond: Option<&Condition>,
+        path: &std::path::Path,
+        _indent: &str,
+    ) -> Result<(), ExecError> {
         match cond {
-            None | Some(Condition::Action(ConditionAction::Panic)) => Err(ExecError::Command(format!("does not exist: {}", path.display()))),
+            None | Some(Condition::Action(ConditionAction::Panic)) => Err(ExecError::Command(
+                format!("does not exist: {}", path.display()),
+            )),
             Some(Condition::Action(ConditionAction::Skip)) => Ok(()),
             Some(Condition::Execute { execute }) => self.run_step_ref(execute, 0),
-            _ => Err(ExecError::Command(format!("does not exist: {}", path.display()))),
+            _ => Err(ExecError::Command(format!(
+                "does not exist: {}",
+                path.display()
+            ))),
         }
     }
 
@@ -973,47 +1424,94 @@ impl Runner {
 
     pub fn dry_run_audit(&self, config: &Config, steps: &[Step]) {
         // Top-level config info
-        println!("{}", style::render(&format!("<mb>version:</m> {}", config.version)));
+        println!(
+            "{}",
+            style::render(&format!("<mb>version:</m> {}", config.version))
+        );
         if self.verbose
             && let Some(desc) = &config.description
         {
             println!("{}", style::render(&format!("<md>{desc}</m>")));
         }
-        if let Some(r) = config.meta.retries { println!("{}", style::render(&format!("<mb>retries:</m> {r}"))); }
-        if let Some(d) = config.meta.retry_delay { println!("{}", style::render(&format!("<mb>retry-delay:</m> {d}s"))); }
-        if config.meta.sudo { println!("{}", style::render("<mb>sudo:</m> true")); }
-        if !config.meta.silent.is_empty() {
-            let s: Vec<_> = config.meta.silent.iter().map(|s| format!("{s:?}").to_lowercase()).collect();
-            println!("{}", style::render(&format!("<mb>silent:</m> {}", s.join(", "))));
+        if let Some(r) = config.meta.retries {
+            println!("{}", style::render(&format!("<mb>retries:</m> {r}")));
         }
-        if let Some(log) = &config.meta.log { println!("{}", style::render(&format!("<mb>log:</m> {log}"))); }
+        if let Some(d) = config.meta.retry_delay {
+            println!("{}", style::render(&format!("<mb>retry-delay:</m> {d}s")));
+        }
+        if config.meta.sudo {
+            println!("{}", style::render("<mb>sudo:</m> true"));
+        }
+        if !config.meta.silent.is_empty() {
+            let s: Vec<_> = config
+                .meta
+                .silent
+                .iter()
+                .map(|s| format!("{s:?}").to_lowercase())
+                .collect();
+            println!(
+                "{}",
+                style::render(&format!("<mb>silent:</m> {}", s.join(", ")))
+            );
+        }
+        if let Some(log) = &config.meta.log {
+            println!("{}", style::render(&format!("<mb>log:</m> {log}")));
+        }
 
         let optional_count = steps.iter().filter(|s| s.meta.optional).count();
         let fallible_count = steps.iter().filter(|s| s.meta.fallible).count();
         let sudo_count = steps.iter().filter(|s| s.meta.sudo).count();
-        let mut counts = format!("{} steps, {} optional, {} fallible", steps.len(), optional_count, fallible_count);
-        if sudo_count > 0 { counts.push_str(&format!(", {} sudo", sudo_count)); }
+        let mut counts = format!(
+            "{} steps, {} optional, {} fallible",
+            steps.len(),
+            optional_count,
+            fallible_count
+        );
+        if sudo_count > 0 {
+            counts.push_str(&format!(", {} sudo", sudo_count));
+        }
         println!("{}", style::render(&format!("<md>({counts})</m>\n")));
 
-        for step in steps { self.audit_step(step, 0); }
+        for step in steps {
+            self.audit_step(step, 0);
+        }
         println!("{}", style::render(&format!("<mb>Summary:</m> {counts}")));
     }
 
     fn audit_step(&self, step: &Step, depth: usize) {
         let indent = "  ".repeat(depth);
         let mut header = format!("{indent}<fg>-></f> <mb>{}</m>", step.name);
-        if let Some(id) = &step.id { header.push_str(&format!(" <md>(id: <fc>{id}</f>)</m>")); }
+        if let Some(id) = &step.id {
+            header.push_str(&format!(" <md>(id: <fc>{id}</f>)</m>"));
+        }
         let mut flags = Vec::new();
-        if step.meta.optional { flags.push("<fy>optional</f>".to_string()); }
-        if step.meta.fallible { flags.push("<fy>fallible</f>".to_string()); }
-        if step.meta.sudo { flags.push("<fy>sudo</f>".to_string()); }
+        if step.meta.optional {
+            flags.push("<fy>optional</f>".to_string());
+        }
+        if step.meta.fallible {
+            flags.push("<fy>fallible</f>".to_string());
+        }
+        if step.meta.sudo {
+            flags.push("<fy>sudo</f>".to_string());
+        }
         if !step.meta.silent.is_empty() {
-            let s: Vec<_> = step.meta.silent.iter().map(|s| format!("{s:?}").to_lowercase()).collect();
+            let s: Vec<_> = step
+                .meta
+                .silent
+                .iter()
+                .map(|s| format!("{s:?}").to_lowercase())
+                .collect();
             flags.push(format!("<fy>silent: {}</f>", s.join(", ")));
         }
-        if let Some(r) = step.meta.retries { flags.push(format!("<fy>retries: {r}</f>")); }
-        if let Some(d) = step.meta.retry_delay { flags.push(format!("<fy>retry-delay: {d}s</f>")); }
-        for f in &flags { header.push_str(&format!(" [{f}]")); }
+        if let Some(r) = step.meta.retries {
+            flags.push(format!("<fy>retries: {r}</f>"));
+        }
+        if let Some(d) = step.meta.retry_delay {
+            flags.push(format!("<fy>retry-delay: {d}s</f>"));
+        }
+        for f in &flags {
+            header.push_str(&format!(" [{f}]"));
+        }
         println!("{}", style::render(&header));
         if self.verbose
             && let Some(desc) = &step.description
@@ -1026,95 +1524,228 @@ impl Runner {
             Action::Shell { commands, dir, env } => {
                 let sudo = step.meta.sudo || self.config_meta.sudo;
                 let prefix = self.shell_prefix(&step.meta, sudo);
-                for cmd in commands { println!("{ai}{}", style::render(&format!("<md>{prefix}</m> {cmd:?}"))); }
-                if let Some(d) = dir { println!("{ai}{}", style::render(&format!("<md>dir:</m> {d}"))); }
+                for cmd in commands {
+                    println!(
+                        "{ai}{}",
+                        style::render(&format!("<md>{prefix}</m> {cmd:?}"))
+                    );
+                }
+                if let Some(d) = dir {
+                    println!("{ai}{}", style::render(&format!("<md>dir:</m> {d}")));
+                }
                 if let Some(e) = env {
-                    for (k, v) in e { println!("{ai}{}", style::render(&format!("<md>env:</m> {k}={v}"))); }
+                    for (k, v) in e {
+                        println!("{ai}{}", style::render(&format!("<md>env:</m> {k}={v}")));
+                    }
                 }
             }
-            Action::Git { repo, dest, on_conflict } => {
-                println!("{ai}{}", style::render(&format!("<md>git clone</m> {repo} -> {dest}")));
-                println!("{ai}{}", style::render(&format!("<md>on-conflict:</m> {on_conflict:?}")));
+            Action::Git {
+                repo,
+                dest,
+                on_conflict,
+            } => {
+                println!(
+                    "{ai}{}",
+                    style::render(&format!("<md>git clone</m> {repo} -> {dest}"))
+                );
+                println!(
+                    "{ai}{}",
+                    style::render(&format!("<md>on-conflict:</m> {on_conflict:?}"))
+                );
             }
-            Action::Fs { op, if_exists, if_not_exists } => {
+            Action::Fs {
+                op,
+                if_exists,
+                if_not_exists,
+            } => {
                 match op {
-                    FsOp::Create { path, recurse, content, expand } => {
+                    FsOp::Create {
+                        path,
+                        recurse,
+                        content,
+                        expand,
+                    } => {
                         for p in path {
                             let kind = if p.ends_with('/') { "dir" } else { "file" };
-                            println!("{ai}{}", style::render(&format!("<md>create {kind}:</m> {p}")));
+                            println!(
+                                "{ai}{}",
+                                style::render(&format!("<md>create {kind}:</m> {p}"))
+                            );
                         }
-                        if *recurse { println!("{ai}{}", style::render("<md>recurse:</m> true")); }
-                        if let Some(c) = content { println!("{ai}{}", style::render(&format!("<md>content:</m> {c:?}"))); }
-                        if let Some(label) = expand_label(expand) { println!("{ai}{}", style::render(&format!("<md>expand:</m> {label}"))); }
+                        if *recurse {
+                            println!("{ai}{}", style::render("<md>recurse:</m> true"));
+                        }
+                        if let Some(c) = content {
+                            println!("{ai}{}", style::render(&format!("<md>content:</m> {c:?}")));
+                        }
+                        if let Some(label) = expand_label(expand) {
+                            println!("{ai}{}", style::render(&format!("<md>expand:</m> {label}")));
+                        }
                     }
                     FsOp::Symlink { from, to, expand } => {
-                        println!("{ai}{}", style::render(&format!("<md>symlink</m> {from} -> {to}")));
-                        if let Some(label) = expand_label(expand) { println!("{ai}{}", style::render(&format!("<md>expand:</m> {label}"))); }
+                        println!(
+                            "{ai}{}",
+                            style::render(&format!("<md>symlink</m> {from} -> {to}"))
+                        );
+                        if let Some(label) = expand_label(expand) {
+                            println!("{ai}{}", style::render(&format!("<md>expand:</m> {label}")));
+                        }
                     }
                     FsOp::Copy { from, to, expand } => {
-                        println!("{ai}{}", style::render(&format!("<md>copy</m> {from} -> {to}")));
-                        if let Some(label) = expand_label(expand) { println!("{ai}{}", style::render(&format!("<md>expand:</m> {label}"))); }
+                        println!(
+                            "{ai}{}",
+                            style::render(&format!("<md>copy</m> {from} -> {to}"))
+                        );
+                        if let Some(label) = expand_label(expand) {
+                            println!("{ai}{}", style::render(&format!("<md>expand:</m> {label}")));
+                        }
                     }
                     FsOp::Move { from, to, expand } => {
-                        println!("{ai}{}", style::render(&format!("<md>move</m> {from} -> {to}")));
-                        if let Some(label) = expand_label(expand) { println!("{ai}{}", style::render(&format!("<md>expand:</m> {label}"))); }
+                        println!(
+                            "{ai}{}",
+                            style::render(&format!("<md>move</m> {from} -> {to}"))
+                        );
+                        if let Some(label) = expand_label(expand) {
+                            println!("{ai}{}", style::render(&format!("<md>expand:</m> {label}")));
+                        }
                     }
-                    FsOp::Delete { path, recurse, expand } => {
-                        for p in path { println!("{ai}{}", style::render(&format!("<md>delete:</m> {p}"))); }
-                        if *recurse { println!("{ai}{}", style::render("<md>recurse:</m> true")); }
-                        if let Some(label) = expand_label(expand) { println!("{ai}{}", style::render(&format!("<md>expand:</m> {label}"))); }
+                    FsOp::Delete {
+                        path,
+                        recurse,
+                        expand,
+                    } => {
+                        for p in path {
+                            println!("{ai}{}", style::render(&format!("<md>delete:</m> {p}")));
+                        }
+                        if *recurse {
+                            println!("{ai}{}", style::render("<md>recurse:</m> true"));
+                        }
+                        if let Some(label) = expand_label(expand) {
+                            println!("{ai}{}", style::render(&format!("<md>expand:</m> {label}")));
+                        }
                     }
                 }
-                if let Some(c) = if_exists { println!("{ai}{}", style::render(&format!("<md>if-exists:</m> {}", condition_label(c)))); }
-                if let Some(c) = if_not_exists { println!("{ai}{}", style::render(&format!("<md>if-not-exists:</m> {}", condition_label(c)))); }
+                if let Some(c) = if_exists {
+                    println!(
+                        "{ai}{}",
+                        style::render(&format!("<md>if-exists:</m> {}", condition_label(c)))
+                    );
+                }
+                if let Some(c) = if_not_exists {
+                    println!(
+                        "{ai}{}",
+                        style::render(&format!("<md>if-not-exists:</m> {}", condition_label(c)))
+                    );
+                }
             }
             Action::Io { op } => match op {
-                IoOp::Write { level, message, markup } => {
+                IoOp::Write {
+                    level,
+                    message,
+                    markup,
+                } => {
                     let ml = if *markup { " [markup]" } else { "" };
-                    println!("{ai}{}", style::render(&format!("<md>{level:?}:</m> {message:?}{ml}")));
+                    println!(
+                        "{ai}{}",
+                        style::render(&format!("<md>{level:?}:</m> {message:?}{ml}"))
+                    );
                 }
-                IoOp::Read { read, prompt, default, secret } => {
+                IoOp::Read {
+                    read,
+                    prompt,
+                    default,
+                    secret,
+                } => {
                     let extras = {
                         let mut v = Vec::new();
-                        if let Some(p) = prompt { v.push(format!("prompt: {p:?}")); }
-                        if let Some(d) = default { v.push(format!("default: {d:?}")); }
-                        if *secret { v.push("secret".to_string()); }
-                        if v.is_empty() { String::new() } else { format!(" ({})", v.join(", ")) }
+                        if let Some(p) = prompt {
+                            v.push(format!("prompt: {p:?}"));
+                        }
+                        if let Some(d) = default {
+                            v.push(format!("default: {d:?}"));
+                        }
+                        if *secret {
+                            v.push("secret".to_string());
+                        }
+                        if v.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" ({})", v.join(", "))
+                        }
                     };
-                    println!("{ai}{}", style::render(&format!("<md>read:</m> {read}{extras}")));
+                    println!(
+                        "{ai}{}",
+                        style::render(&format!("<md>read:</m> {read}{extras}"))
+                    );
                 }
-            }
-            Action::Var { name, source } => {
-                match source {
-                    VarSource::From { from } => println!("{ai}{}", style::render(&format!("<md>var {name} \\<-</m> {}", step_ref_label(from)))),
-                    VarSource::To { to } => println!("{ai}{}", style::render(&format!("<md>var {name} -></m> {}", step_ref_label(to)))),
-                    VarSource::Command { command } => println!("{ai}{}", style::render(&format!("<md>var {name} :=</m> {command:?}"))),
-                    VarSource::File { file } => println!("{ai}{}", style::render(&format!("<md>var {name} \\<- file</m> {file:?}"))),
-                }
-            }
+            },
+            Action::Var { name, source } => match source {
+                VarSource::From { from } => println!(
+                    "{ai}{}",
+                    style::render(&format!("<md>var {name} \\<-</m> {}", step_ref_label(from)))
+                ),
+                VarSource::To { to } => println!(
+                    "{ai}{}",
+                    style::render(&format!("<md>var {name} -></m> {}", step_ref_label(to)))
+                ),
+                VarSource::Command { command } => println!(
+                    "{ai}{}",
+                    style::render(&format!("<md>var {name} :=</m> {command:?}"))
+                ),
+                VarSource::File { file } => println!(
+                    "{ai}{}",
+                    style::render(&format!("<md>var {name} \\<- file</m> {file:?}"))
+                ),
+            },
             Action::Cond { cmp, when, default } => {
                 println!("{ai}{}", style::render(&format!("<md>cond:</m> {cmp:?}")));
                 for (key, refs) in when {
-                    println!("{ai}  {}", style::render(&format!("<fc>{key:?}</f> -> {}", step_refs_label(refs))));
+                    println!(
+                        "{ai}  {}",
+                        style::render(&format!("<fc>{key:?}</f> -> {}", step_refs_label(refs)))
+                    );
                 }
                 if let Some(refs) = default {
-                    println!("{ai}  {}", style::render(&format!("<fy>default</f> -> {}", step_refs_label(refs))));
+                    println!(
+                        "{ai}  {}",
+                        style::render(&format!("<fy>default</f> -> {}", step_refs_label(refs)))
+                    );
                 }
             }
             Action::Rig { file, set } => {
                 println!("{ai}{}", style::render(&format!("<md>rig:</m> {file:?}")));
                 if let Some(s) = set {
-                    for (k, v) in s { println!("{ai}  {}", style::render(&format!("<md>set</m> {k} = {v:?}"))); }
+                    for (k, v) in s {
+                        println!(
+                            "{ai}  {}",
+                            style::render(&format!("<md>set</m> {k} = {v:?}"))
+                        );
+                    }
                 }
             }
         }
 
         // on-success / on-failure / on-return
-        if let Some(refs) = &step.on_success { println!("{ai}{}", style::render(&format!("<md>on-success:</m> {}", step_refs_label(refs)))); }
-        if let Some(refs) = &step.on_failure { println!("{ai}{}", style::render(&format!("<md>on-failure:</m> {}", step_refs_label(refs)))); }
+        if let Some(refs) = &step.on_success {
+            println!(
+                "{ai}{}",
+                style::render(&format!("<md>on-success:</m> {}", step_refs_label(refs)))
+            );
+        }
+        if let Some(refs) = &step.on_failure {
+            println!(
+                "{ai}{}",
+                style::render(&format!("<md>on-failure:</m> {}", step_refs_label(refs)))
+            );
+        }
         if let Some(map) = &step.on_return {
             println!("{ai}{}", style::render("<md>on-return:</m>"));
-            for (code, refs) in map { println!("{ai}  {}", style::render(&format!("{code} -> <fc>{}</f>", step_refs_label(refs)))); }
+            for (code, refs) in map {
+                println!(
+                    "{ai}  {}",
+                    style::render(&format!("{code} -> <fc>{}</f>", step_refs_label(refs)))
+                );
+            }
         }
 
         // then
@@ -1122,7 +1753,9 @@ impl Runner {
             println!("{ai}{}", style::render("<md>then:</m>"));
             for child in &step.then {
                 match child {
-                    StepRef::Id(id) => println!("{ai}  {}", style::render(&format!("-> <fc>{id}</f>"))),
+                    StepRef::Id(id) => {
+                        println!("{ai}  {}", style::render(&format!("-> <fc>{id}</f>")))
+                    }
                     StepRef::Inline(s) => self.audit_step(s, depth + 1),
                 }
             }
@@ -1133,7 +1766,12 @@ impl Runner {
 
 // -- Helpers --
 
-enum CondResult { Skip, Proceed, Append, Panic }
+enum CondResult {
+    Skip,
+    Proceed,
+    Append,
+    Panic,
+}
 
 fn step_ref_label(sr: &StepRef) -> String {
     match sr {
@@ -1143,15 +1781,24 @@ fn step_ref_label(sr: &StepRef) -> String {
 }
 
 /// Resolve a StepRef to an owned Step, looking up ID refs in the index.
-fn resolve_step_ref<'a>(sr: &'a StepRef, index: &'a HashMap<String, Step>) -> Result<std::borrow::Cow<'a, Step>, &'a str> {
+fn resolve_step_ref<'a>(
+    sr: &'a StepRef,
+    index: &'a HashMap<String, Step>,
+) -> Result<std::borrow::Cow<'a, Step>, &'a str> {
     match sr {
-        StepRef::Id(id) => index.get(id).map(std::borrow::Cow::Borrowed).ok_or(id.as_str()),
+        StepRef::Id(id) => index
+            .get(id)
+            .map(std::borrow::Cow::Borrowed)
+            .ok_or(id.as_str()),
         StepRef::Inline(s) => Ok(std::borrow::Cow::Borrowed(s)),
     }
 }
 
 fn step_refs_label(refs: &[StepRef]) -> String {
-    refs.iter().map(step_ref_label).collect::<Vec<_>>().join(", ")
+    refs.iter()
+        .map(step_ref_label)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn condition_label(c: &Condition) -> String {
@@ -1176,10 +1823,18 @@ fn expand_label(flags: &ExpandFlags) -> Option<String> {
         return Some("all".into());
     }
     let mut parts = Vec::new();
-    if flags.from { parts.push("from"); }
-    if flags.to { parts.push("to"); }
-    if flags.path { parts.push("path"); }
-    if flags.contents { parts.push("contents"); }
+    if flags.from {
+        parts.push("from");
+    }
+    if flags.to {
+        parts.push("to");
+    }
+    if flags.path {
+        parts.push("path");
+    }
+    if flags.contents {
+        parts.push("contents");
+    }
     Some(parts.join(", "))
 }
 
@@ -1189,29 +1844,50 @@ mod tests {
     use std::fs;
 
     fn runner(index: HashMap<String, Step>) -> Runner {
-        Runner::new(index, false, false, Meta::default(), crate::vars::Scope::default())
+        Runner::new(
+            index,
+            false,
+            false,
+            Meta::default(),
+            crate::vars::Scope::default(),
+        )
     }
 
     fn dry_runner() -> Runner {
-        Runner::new(HashMap::new(), true, false, Meta::default(), crate::vars::Scope::default())
+        Runner::new(
+            HashMap::new(),
+            true,
+            false,
+            Meta::default(),
+            crate::vars::Scope::default(),
+        )
     }
 
     fn shell_step(commands: Vec<&str>, dir: Option<&str>) -> Step {
         Step {
-            id: None, name: "test".into(), description: None,
+            id: None,
+            name: "test".into(),
+            description: None,
             action: Action::Shell {
                 commands: commands.into_iter().map(String::from).collect(),
-                dir: dir.map(String::from), env: None,
+                dir: dir.map(String::from),
+                env: None,
             },
-            on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: StepMeta::default(),
+            on_success: None,
+            on_failure: None,
+            on_return: None,
+            then: vec![],
+            meta: StepMeta::default(),
         }
     }
 
     #[test]
     fn shell_runs_command() {
         let dir = tempfile::tempdir().unwrap();
-        let step = shell_step(vec!["echo hi > out.txt"], Some(dir.path().to_str().unwrap()));
+        let step = shell_step(
+            vec!["echo hi > out.txt"],
+            Some(dir.path().to_str().unwrap()),
+        );
         runner(HashMap::new()).run_step(&step, 0).unwrap();
         assert!(dir.path().join("out.txt").exists());
     }
@@ -1219,7 +1895,10 @@ mod tests {
     #[test]
     fn shell_dry_run() {
         let dir = tempfile::tempdir().unwrap();
-        let step = shell_step(vec!["echo hi > out.txt"], Some(dir.path().to_str().unwrap()));
+        let step = shell_step(
+            vec!["echo hi > out.txt"],
+            Some(dir.path().to_str().unwrap()),
+        );
         dry_runner().run_step(&step, 0).unwrap();
         assert!(!dir.path().join("out.txt").exists());
     }
@@ -1243,13 +1922,24 @@ mod tests {
         let target = dir.path().join("newdir");
         let path_str = format!("{}/", target.display());
         let step = Step {
-            id: None, name: "create".into(), description: None,
+            id: None,
+            name: "create".into(),
+            description: None,
             action: Action::Fs {
-                op: FsOp::Create { path: vec![path_str], recurse: false, content: None, expand: ExpandFlags::NONE },
-                if_exists: None, if_not_exists: None,
+                op: FsOp::Create {
+                    path: vec![path_str],
+                    recurse: false,
+                    content: None,
+                    expand: ExpandFlags::NONE,
+                },
+                if_exists: None,
+                if_not_exists: None,
             },
-            on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: StepMeta::default(),
+            on_success: None,
+            on_failure: None,
+            on_return: None,
+            then: vec![],
+            meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
         assert!(target.is_dir());
@@ -1260,13 +1950,24 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let target = dir.path().join("newfile.txt");
         let step = Step {
-            id: None, name: "create".into(), description: None,
+            id: None,
+            name: "create".into(),
+            description: None,
             action: Action::Fs {
-                op: FsOp::Create { path: vec![target.to_string_lossy().into()], recurse: false, content: None, expand: ExpandFlags::NONE },
-                if_exists: None, if_not_exists: None,
+                op: FsOp::Create {
+                    path: vec![target.to_string_lossy().into()],
+                    recurse: false,
+                    content: None,
+                    expand: ExpandFlags::NONE,
+                },
+                if_exists: None,
+                if_not_exists: None,
             },
-            on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: StepMeta::default(),
+            on_success: None,
+            on_failure: None,
+            on_return: None,
+            then: vec![],
+            meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
         assert!(target.is_file());
@@ -1277,13 +1978,24 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let target = dir.path().join("hello.txt");
         let step = Step {
-            id: None, name: "create".into(), description: None,
+            id: None,
+            name: "create".into(),
+            description: None,
             action: Action::Fs {
-                op: FsOp::Create { path: vec![target.to_string_lossy().into()], recurse: false, content: Some("hello world".into()), expand: ExpandFlags::NONE },
-                if_exists: None, if_not_exists: None,
+                op: FsOp::Create {
+                    path: vec![target.to_string_lossy().into()],
+                    recurse: false,
+                    content: Some("hello world".into()),
+                    expand: ExpandFlags::NONE,
+                },
+                if_exists: None,
+                if_not_exists: None,
             },
-            on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: StepMeta::default(),
+            on_success: None,
+            on_failure: None,
+            on_return: None,
+            then: vec![],
+            meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
         assert_eq!(fs::read_to_string(&target).unwrap(), "hello world");
@@ -1295,13 +2007,24 @@ mod tests {
         let target = dir.path().join("log.txt");
         fs::write(&target, "existing\n").unwrap();
         let step = Step {
-            id: None, name: "append".into(), description: None,
+            id: None,
+            name: "append".into(),
+            description: None,
             action: Action::Fs {
-                op: FsOp::Create { path: vec![target.to_string_lossy().into()], recurse: false, content: Some("new line\n".into()), expand: ExpandFlags::NONE },
-                if_exists: Some(Condition::Action(ConditionAction::Append)), if_not_exists: None,
+                op: FsOp::Create {
+                    path: vec![target.to_string_lossy().into()],
+                    recurse: false,
+                    content: Some("new line\n".into()),
+                    expand: ExpandFlags::NONE,
+                },
+                if_exists: Some(Condition::Action(ConditionAction::Append)),
+                if_not_exists: None,
             },
-            on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: StepMeta::default(),
+            on_success: None,
+            on_failure: None,
+            on_return: None,
+            then: vec![],
+            meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
         assert_eq!(fs::read_to_string(&target).unwrap(), "existing\nnew line\n");
@@ -1315,13 +2038,23 @@ mod tests {
         fs::write(&src, "from src\n").unwrap();
         fs::write(&dst, "original\n").unwrap();
         let step = Step {
-            id: None, name: "append".into(), description: None,
+            id: None,
+            name: "append".into(),
+            description: None,
             action: Action::Fs {
-                op: FsOp::Copy { from: src.to_string_lossy().into(), to: dst.to_string_lossy().into(), expand: ExpandFlags::NONE },
-                if_exists: Some(Condition::Action(ConditionAction::Append)), if_not_exists: None,
+                op: FsOp::Copy {
+                    from: src.to_string_lossy().into(),
+                    to: dst.to_string_lossy().into(),
+                    expand: ExpandFlags::NONE,
+                },
+                if_exists: Some(Condition::Action(ConditionAction::Append)),
+                if_not_exists: None,
             },
-            on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: StepMeta::default(),
+            on_success: None,
+            on_failure: None,
+            on_return: None,
+            then: vec![],
+            meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
         assert_eq!(fs::read_to_string(&dst).unwrap(), "original\nfrom src\n");
@@ -1334,13 +2067,23 @@ mod tests {
         let dst = dir.path().join("dst.txt");
         fs::write(&src, "hello").unwrap();
         let step = Step {
-            id: None, name: "link".into(), description: None,
+            id: None,
+            name: "link".into(),
+            description: None,
             action: Action::Fs {
-                op: FsOp::Symlink { from: src.to_string_lossy().into(), to: dst.to_string_lossy().into(), expand: ExpandFlags::NONE },
-                if_exists: None, if_not_exists: None,
+                op: FsOp::Symlink {
+                    from: src.to_string_lossy().into(),
+                    to: dst.to_string_lossy().into(),
+                    expand: ExpandFlags::NONE,
+                },
+                if_exists: None,
+                if_not_exists: None,
             },
-            on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: StepMeta::default(),
+            on_success: None,
+            on_failure: None,
+            on_return: None,
+            then: vec![],
+            meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
         assert!(dst.is_symlink());
@@ -1354,13 +2097,23 @@ mod tests {
         let dst = dir.path().join("dst.txt");
         fs::write(&src, "data").unwrap();
         let step = Step {
-            id: None, name: "copy".into(), description: None,
+            id: None,
+            name: "copy".into(),
+            description: None,
             action: Action::Fs {
-                op: FsOp::Copy { from: src.to_string_lossy().into(), to: dst.to_string_lossy().into(), expand: ExpandFlags::NONE },
-                if_exists: None, if_not_exists: Some(Condition::Action(ConditionAction::Panic)),
+                op: FsOp::Copy {
+                    from: src.to_string_lossy().into(),
+                    to: dst.to_string_lossy().into(),
+                    expand: ExpandFlags::NONE,
+                },
+                if_exists: None,
+                if_not_exists: Some(Condition::Action(ConditionAction::Panic)),
             },
-            on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: StepMeta::default(),
+            on_success: None,
+            on_failure: None,
+            on_return: None,
+            then: vec![],
+            meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
         assert_eq!(fs::read_to_string(&dst).unwrap(), "data");
@@ -1373,13 +2126,23 @@ mod tests {
         let dst = dir.path().join("dst.txt");
         fs::write(&src, "data").unwrap();
         let step = Step {
-            id: None, name: "mv".into(), description: None,
+            id: None,
+            name: "mv".into(),
+            description: None,
             action: Action::Fs {
-                op: FsOp::Move { from: src.to_string_lossy().into(), to: dst.to_string_lossy().into(), expand: ExpandFlags::NONE },
-                if_exists: None, if_not_exists: None,
+                op: FsOp::Move {
+                    from: src.to_string_lossy().into(),
+                    to: dst.to_string_lossy().into(),
+                    expand: ExpandFlags::NONE,
+                },
+                if_exists: None,
+                if_not_exists: None,
             },
-            on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: StepMeta::default(),
+            on_success: None,
+            on_failure: None,
+            on_return: None,
+            then: vec![],
+            meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
         assert!(!src.exists());
@@ -1392,13 +2155,23 @@ mod tests {
         let f = dir.path().join("del.txt");
         fs::write(&f, "x").unwrap();
         let step = Step {
-            id: None, name: "del".into(), description: None,
+            id: None,
+            name: "del".into(),
+            description: None,
             action: Action::Fs {
-                op: FsOp::Delete { path: vec![f.to_string_lossy().into()], recurse: false, expand: ExpandFlags::NONE },
-                if_exists: None, if_not_exists: None,
+                op: FsOp::Delete {
+                    path: vec![f.to_string_lossy().into()],
+                    recurse: false,
+                    expand: ExpandFlags::NONE,
+                },
+                if_exists: None,
+                if_not_exists: None,
             },
-            on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: StepMeta::default(),
+            on_success: None,
+            on_failure: None,
+            on_return: None,
+            then: vec![],
+            meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
         assert!(!f.exists());
@@ -1407,13 +2180,23 @@ mod tests {
     #[test]
     fn fs_delete_not_exists_skip() {
         let step = Step {
-            id: None, name: "del".into(), description: None,
+            id: None,
+            name: "del".into(),
+            description: None,
             action: Action::Fs {
-                op: FsOp::Delete { path: vec!["/tmp/nonexistent_rig_test".into()], recurse: false, expand: ExpandFlags::NONE },
-                if_exists: None, if_not_exists: Some(Condition::Action(ConditionAction::Skip)),
+                op: FsOp::Delete {
+                    path: vec!["/tmp/nonexistent_rig_test".into()],
+                    recurse: false,
+                    expand: ExpandFlags::NONE,
+                },
+                if_exists: None,
+                if_not_exists: Some(Condition::Action(ConditionAction::Skip)),
             },
-            on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: StepMeta::default(),
+            on_success: None,
+            on_failure: None,
+            on_return: None,
+            then: vec![],
+            meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
     }
@@ -1434,17 +2217,23 @@ mod tests {
         let dst = dst_dir.join("{{name}}.txt");
 
         let step = Step {
-            id: None, name: "copy-literal".into(), description: None,
+            id: None,
+            name: "copy-literal".into(),
+            description: None,
             action: Action::Fs {
                 op: FsOp::Copy {
                     from: src.to_string_lossy().into(),
                     to: dst.to_string_lossy().into(),
                     expand: ExpandFlags::NONE,
                 },
-                if_exists: None, if_not_exists: None,
+                if_exists: None,
+                if_not_exists: None,
             },
-            on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: StepMeta::default(),
+            on_success: None,
+            on_failure: None,
+            on_return: None,
+            then: vec![],
+            meta: StepMeta::default(),
         };
 
         // Set a `name` var so we'd notice if substitution leaked.
@@ -1470,17 +2259,23 @@ mod tests {
         let dst_template = format!("{}/{{{{name}}}}.txt", dir.path().display());
 
         let step = Step {
-            id: None, name: "copy-default".into(), description: None,
+            id: None,
+            name: "copy-default".into(),
+            description: None,
             action: Action::Fs {
                 op: FsOp::Copy {
                     from: src.to_string_lossy().into(),
                     to: dst_template,
                     expand: ExpandFlags::default(),
                 },
-                if_exists: None, if_not_exists: None,
+                if_exists: None,
+                if_not_exists: None,
             },
-            on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: StepMeta::default(),
+            on_success: None,
+            on_failure: None,
+            on_return: None,
+            then: vec![],
+            meta: StepMeta::default(),
         };
 
         let mut scope = crate::vars::Scope::default();
@@ -1513,17 +2308,23 @@ mod tests {
         let dst = out.path().join("out.txt");
 
         let step = Step {
-            id: None, name: "copy".into(), description: None,
+            id: None,
+            name: "copy".into(),
+            description: None,
             action: Action::Fs {
                 op: FsOp::Copy {
                     from: src.to_string_lossy().into(),
                     to: dst.to_string_lossy().into(),
                     expand: ExpandFlags::default(), // contents:false, yet bundle rule overrides
                 },
-                if_exists: None, if_not_exists: None,
+                if_exists: None,
+                if_not_exists: None,
             },
-            on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: StepMeta::default(),
+            on_success: None,
+            on_failure: None,
+            on_return: None,
+            then: vec![],
+            meta: StepMeta::default(),
         };
 
         let mut scope = crate::vars::Scope::default();
@@ -1549,17 +2350,23 @@ mod tests {
         let dst = out.path().join("out.png");
 
         let step = Step {
-            id: None, name: "copy".into(), description: None,
+            id: None,
+            name: "copy".into(),
+            description: None,
             action: Action::Fs {
                 op: FsOp::Copy {
                     from: src.to_string_lossy().into(),
                     to: dst.to_string_lossy().into(),
                     expand: ExpandFlags::default(),
                 },
-                if_exists: None, if_not_exists: None,
+                if_exists: None,
+                if_not_exists: None,
             },
-            on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: StepMeta::default(),
+            on_success: None,
+            on_failure: None,
+            on_return: None,
+            then: vec![],
+            meta: StepMeta::default(),
         };
 
         let mut scope = crate::vars::Scope::default();
@@ -1587,17 +2394,23 @@ mod tests {
         let dst = workspace.path().join("out.txt");
 
         let step = Step {
-            id: None, name: "copy".into(), description: None,
+            id: None,
+            name: "copy".into(),
+            description: None,
             action: Action::Fs {
                 op: FsOp::Copy {
                     from: src.to_string_lossy().into(),
                     to: dst.to_string_lossy().into(),
                     expand: ExpandFlags::default(),
                 },
-                if_exists: None, if_not_exists: None,
+                if_exists: None,
+                if_not_exists: None,
             },
-            on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: StepMeta::default(),
+            on_success: None,
+            on_failure: None,
+            on_return: None,
+            then: vec![],
+            meta: StepMeta::default(),
         };
 
         let mut scope = crate::vars::Scope::default();
@@ -1623,17 +2436,23 @@ mod tests {
         let dst = dir.path().join("out.txt");
 
         let step = Step {
-            id: None, name: "copy".into(), description: None,
+            id: None,
+            name: "copy".into(),
+            description: None,
             action: Action::Fs {
                 op: FsOp::Copy {
                     from: src.to_string_lossy().into(),
                     to: dst.to_string_lossy().into(),
                     expand: ExpandFlags::default(),
                 },
-                if_exists: None, if_not_exists: None,
+                if_exists: None,
+                if_not_exists: None,
             },
-            on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: StepMeta::default(),
+            on_success: None,
+            on_failure: None,
+            on_return: None,
+            then: vec![],
+            meta: StepMeta::default(),
         };
 
         let mut scope = crate::vars::Scope::default();
@@ -1647,12 +2466,21 @@ mod tests {
     fn then_runs_after_parent() {
         let dir = tempfile::tempdir().unwrap();
         let step = Step {
-            id: None, name: "parent".into(), description: None,
-            action: Action::Shell { commands: vec!["echo parent".into()], dir: None, env: None },
-            on_success: None, on_failure: None, on_return: None,
-            then: vec![
-                StepRef::Inline(Box::new(shell_step(vec!["echo child > child.txt"], Some(dir.path().to_str().unwrap())))),
-            ],
+            id: None,
+            name: "parent".into(),
+            description: None,
+            action: Action::Shell {
+                commands: vec!["echo parent".into()],
+                dir: None,
+                env: None,
+            },
+            on_success: None,
+            on_failure: None,
+            on_return: None,
+            then: vec![StepRef::Inline(Box::new(shell_step(
+                vec!["echo child > child.txt"],
+                Some(dir.path().to_str().unwrap()),
+            )))],
             meta: StepMeta::default(),
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
@@ -1663,13 +2491,25 @@ mod tests {
     fn then_skipped_on_fallible_failure() {
         let dir = tempfile::tempdir().unwrap();
         let step = Step {
-            id: None, name: "parent".into(), description: None,
-            action: Action::Shell { commands: vec!["false".into()], dir: None, env: None },
-            on_success: None, on_failure: None, on_return: None,
-            then: vec![
-                StepRef::Inline(Box::new(shell_step(vec!["echo child > child.txt"], Some(dir.path().to_str().unwrap())))),
-            ],
-            meta: StepMeta { fallible: true, ..StepMeta::default() },
+            id: None,
+            name: "parent".into(),
+            description: None,
+            action: Action::Shell {
+                commands: vec!["false".into()],
+                dir: None,
+                env: None,
+            },
+            on_success: None,
+            on_failure: None,
+            on_return: None,
+            then: vec![StepRef::Inline(Box::new(shell_step(
+                vec!["echo child > child.txt"],
+                Some(dir.path().to_str().unwrap()),
+            )))],
+            meta: StepMeta {
+                fallible: true,
+                ..StepMeta::default()
+            },
         };
         runner(HashMap::new()).run_step(&step, 0).unwrap();
         assert!(!dir.path().join("child.txt").exists());
@@ -1678,10 +2518,22 @@ mod tests {
     #[test]
     fn optional_steps_skipped() {
         let steps = vec![Step {
-            id: None, name: "opt".into(), description: None,
-            action: Action::Shell { commands: vec!["false".into()], dir: None, env: None },
-            on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: StepMeta { optional: true, ..StepMeta::default() },
+            id: None,
+            name: "opt".into(),
+            description: None,
+            action: Action::Shell {
+                commands: vec!["false".into()],
+                dir: None,
+                env: None,
+            },
+            on_success: None,
+            on_failure: None,
+            on_return: None,
+            then: vec![],
+            meta: StepMeta {
+                optional: true,
+                ..StepMeta::default()
+            },
         }];
         runner(HashMap::new()).run_steps(&steps).unwrap();
     }
@@ -1690,23 +2542,43 @@ mod tests {
     fn on_success_triggers() {
         let dir = tempfile::tempdir().unwrap();
         let handler = Step {
-            id: Some("handler".into()), name: "handler".into(), description: None,
+            id: Some("handler".into()),
+            name: "handler".into(),
+            description: None,
             action: Action::Shell {
-                commands: vec![format!("echo handled > {}/handled.txt", dir.path().display())],
-                dir: None, env: None,
+                commands: vec![format!(
+                    "echo handled > {}/handled.txt",
+                    dir.path().display()
+                )],
+                dir: None,
+                env: None,
             },
-            on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: StepMeta { optional: true, ..StepMeta::default() },
+            on_success: None,
+            on_failure: None,
+            on_return: None,
+            then: vec![],
+            meta: StepMeta {
+                optional: true,
+                ..StepMeta::default()
+            },
         };
         let mut index = HashMap::new();
         index.insert("handler".into(), handler);
 
         let step = Step {
-            id: None, name: "test".into(), description: None,
-            action: Action::Shell { commands: vec!["true".into()], dir: None, env: None },
+            id: None,
+            name: "test".into(),
+            description: None,
+            action: Action::Shell {
+                commands: vec!["true".into()],
+                dir: None,
+                env: None,
+            },
             on_success: Some(vec![StepRef::Id("handler".into())]),
-            on_failure: None, on_return: None,
-            then: vec![], meta: StepMeta::default(),
+            on_failure: None,
+            on_return: None,
+            then: vec![],
+            meta: StepMeta::default(),
         };
         runner(index).run_step(&step, 0).unwrap();
         assert!(dir.path().join("handled.txt").exists());
@@ -1716,24 +2588,43 @@ mod tests {
     fn on_failure_triggers() {
         let dir = tempfile::tempdir().unwrap();
         let handler = Step {
-            id: Some("handler".into()), name: "handler".into(), description: None,
+            id: Some("handler".into()),
+            name: "handler".into(),
+            description: None,
             action: Action::Shell {
-                commands: vec![format!("echo handled > {}/handled.txt", dir.path().display())],
-                dir: None, env: None,
+                commands: vec![format!(
+                    "echo handled > {}/handled.txt",
+                    dir.path().display()
+                )],
+                dir: None,
+                env: None,
             },
-            on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: StepMeta { optional: true, ..StepMeta::default() },
+            on_success: None,
+            on_failure: None,
+            on_return: None,
+            then: vec![],
+            meta: StepMeta {
+                optional: true,
+                ..StepMeta::default()
+            },
         };
         let mut index = HashMap::new();
         index.insert("handler".into(), handler);
 
         let step = Step {
-            id: None, name: "test".into(), description: None,
-            action: Action::Shell { commands: vec!["false".into()], dir: None, env: None },
+            id: None,
+            name: "test".into(),
+            description: None,
+            action: Action::Shell {
+                commands: vec!["false".into()],
+                dir: None,
+                env: None,
+            },
             on_success: None,
             on_failure: Some(vec![StepRef::Id("handler".into())]),
             on_return: None,
-            then: vec![], meta: StepMeta::default(),
+            then: vec![],
+            meta: StepMeta::default(),
         };
         runner(index).run_step(&step, 0).unwrap();
         assert!(dir.path().join("handled.txt").exists());
@@ -1743,34 +2634,68 @@ mod tests {
     fn on_return_overrides_on_success() {
         let dir = tempfile::tempdir().unwrap();
         let special = Step {
-            id: Some("special".into()), name: "special".into(), description: None,
+            id: Some("special".into()),
+            name: "special".into(),
+            description: None,
             action: Action::Shell {
-                commands: vec![format!("echo special > {}/special.txt", dir.path().display())],
-                dir: None, env: None,
+                commands: vec![format!(
+                    "echo special > {}/special.txt",
+                    dir.path().display()
+                )],
+                dir: None,
+                env: None,
             },
-            on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: StepMeta { optional: true, ..StepMeta::default() },
+            on_success: None,
+            on_failure: None,
+            on_return: None,
+            then: vec![],
+            meta: StepMeta {
+                optional: true,
+                ..StepMeta::default()
+            },
         };
         let generic = Step {
-            id: Some("generic".into()), name: "generic".into(), description: None,
+            id: Some("generic".into()),
+            name: "generic".into(),
+            description: None,
             action: Action::Shell {
-                commands: vec![format!("echo generic > {}/generic.txt", dir.path().display())],
-                dir: None, env: None,
+                commands: vec![format!(
+                    "echo generic > {}/generic.txt",
+                    dir.path().display()
+                )],
+                dir: None,
+                env: None,
             },
-            on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: StepMeta { optional: true, ..StepMeta::default() },
+            on_success: None,
+            on_failure: None,
+            on_return: None,
+            then: vec![],
+            meta: StepMeta {
+                optional: true,
+                ..StepMeta::default()
+            },
         };
         let mut index = HashMap::new();
         index.insert("special".into(), special);
         index.insert("generic".into(), generic);
 
         let step = Step {
-            id: None, name: "test".into(), description: None,
-            action: Action::Shell { commands: vec!["true".into()], dir: None, env: None },
+            id: None,
+            name: "test".into(),
+            description: None,
+            action: Action::Shell {
+                commands: vec!["true".into()],
+                dir: None,
+                env: None,
+            },
             on_success: Some(vec![StepRef::Id("generic".into())]),
             on_failure: None,
-            on_return: Some(HashMap::from([("0".into(), vec![StepRef::Id("special".into())])])),
-            then: vec![], meta: StepMeta::default(),
+            on_return: Some(HashMap::from([(
+                "0".into(),
+                vec![StepRef::Id("special".into())],
+            )])),
+            then: vec![],
+            meta: StepMeta::default(),
         };
         runner(index).run_step(&step, 0).unwrap();
         assert!(dir.path().join("special.txt").exists());
@@ -1781,24 +2706,43 @@ mod tests {
     fn on_return_wildcard_overrides_on_failure() {
         let dir = tempfile::tempdir().unwrap();
         let handler = Step {
-            id: Some("catch".into()), name: "catch".into(), description: None,
+            id: Some("catch".into()),
+            name: "catch".into(),
+            description: None,
             action: Action::Shell {
                 commands: vec![format!("echo caught > {}/caught.txt", dir.path().display())],
-                dir: None, env: None,
+                dir: None,
+                env: None,
             },
-            on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: StepMeta { optional: true, ..StepMeta::default() },
+            on_success: None,
+            on_failure: None,
+            on_return: None,
+            then: vec![],
+            meta: StepMeta {
+                optional: true,
+                ..StepMeta::default()
+            },
         };
         let mut index = HashMap::new();
         index.insert("catch".into(), handler);
 
         let step = Step {
-            id: None, name: "test".into(), description: None,
-            action: Action::Shell { commands: vec!["exit 42".into()], dir: None, env: None },
+            id: None,
+            name: "test".into(),
+            description: None,
+            action: Action::Shell {
+                commands: vec!["exit 42".into()],
+                dir: None,
+                env: None,
+            },
             on_success: None,
             on_failure: Some(vec![StepRef::Id("catch".into())]),
-            on_return: Some(HashMap::from([("_".into(), vec![StepRef::Id("catch".into())])])),
-            then: vec![], meta: StepMeta::default(),
+            on_return: Some(HashMap::from([(
+                "_".into(),
+                vec![StepRef::Id("catch".into())],
+            )])),
+            then: vec![],
+            meta: StepMeta::default(),
         };
         runner(index).run_step(&step, 0).unwrap();
         assert!(dir.path().join("caught.txt").exists());
@@ -1808,25 +2752,45 @@ mod tests {
     fn on_success_then_both_run() {
         let dir = tempfile::tempdir().unwrap();
         let handler = Step {
-            id: Some("handler".into()), name: "handler".into(), description: None,
+            id: Some("handler".into()),
+            name: "handler".into(),
+            description: None,
             action: Action::Shell {
-                commands: vec![format!("echo handled > {}/handled.txt", dir.path().display())],
-                dir: None, env: None,
+                commands: vec![format!(
+                    "echo handled > {}/handled.txt",
+                    dir.path().display()
+                )],
+                dir: None,
+                env: None,
             },
-            on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: StepMeta { optional: true, ..StepMeta::default() },
+            on_success: None,
+            on_failure: None,
+            on_return: None,
+            then: vec![],
+            meta: StepMeta {
+                optional: true,
+                ..StepMeta::default()
+            },
         };
         let mut index = HashMap::new();
         index.insert("handler".into(), handler);
 
         let step = Step {
-            id: None, name: "test".into(), description: None,
-            action: Action::Shell { commands: vec!["true".into()], dir: None, env: None },
+            id: None,
+            name: "test".into(),
+            description: None,
+            action: Action::Shell {
+                commands: vec!["true".into()],
+                dir: None,
+                env: None,
+            },
             on_success: Some(vec![StepRef::Id("handler".into())]),
-            on_failure: None, on_return: None,
-            then: vec![
-                StepRef::Inline(Box::new(shell_step(vec!["echo child > child.txt"], Some(dir.path().to_str().unwrap())))),
-            ],
+            on_failure: None,
+            on_return: None,
+            then: vec![StepRef::Inline(Box::new(shell_step(
+                vec!["echo child > child.txt"],
+                Some(dir.path().to_str().unwrap()),
+            )))],
             meta: StepMeta::default(),
         };
         runner(index).run_step(&step, 0).unwrap();
@@ -1839,13 +2803,22 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let counter = dir.path().join("count");
         let step = Step {
-            id: None, name: "retry-test".into(), description: None,
+            id: None,
+            name: "retry-test".into(),
+            description: None,
             action: Action::Shell {
                 commands: vec![format!("echo x >> {} && false", counter.display())],
-                dir: None, env: None,
+                dir: None,
+                env: None,
             },
-            on_success: None, on_failure: None, on_return: None,
-            then: vec![], meta: StepMeta { retries: Some(2), ..StepMeta::default() },
+            on_success: None,
+            on_failure: None,
+            on_return: None,
+            then: vec![],
+            meta: StepMeta {
+                retries: Some(2),
+                ..StepMeta::default()
+            },
         };
         let result = runner(HashMap::new()).run_step(&step, 0);
         assert!(result.is_err());
@@ -1856,15 +2829,29 @@ mod tests {
     #[test]
     fn cycle_detected() {
         let step = Step {
-            id: Some("a".into()), name: "a".into(), description: None,
-            action: Action::Shell { commands: vec!["true".into()], dir: None, env: None },
-            on_success: None, on_failure: None, on_return: None,
+            id: Some("a".into()),
+            name: "a".into(),
+            description: None,
+            action: Action::Shell {
+                commands: vec!["true".into()],
+                dir: None,
+                env: None,
+            },
+            on_success: None,
+            on_failure: None,
+            on_return: None,
             then: vec![StepRef::Id("a".into())],
             meta: StepMeta::default(),
         };
         let mut index = HashMap::new();
         index.insert("a".into(), step.clone());
-        let r = Runner::new(index, false, false, Meta::default(), crate::vars::Scope::default());
+        let r = Runner::new(
+            index,
+            false,
+            false,
+            Meta::default(),
+            crate::vars::Scope::default(),
+        );
         let result = r.run_step(&step, 0);
         assert!(result.is_err());
     }
@@ -1881,7 +2868,11 @@ mod tests {
             description: None,
             action: Action::Rig {
                 file: sub_path.to_str().unwrap().to_string(),
-                set: Some([("msg".to_string(), "hello".to_string())].into_iter().collect()),
+                set: Some(
+                    [("msg".to_string(), "hello".to_string())]
+                        .into_iter()
+                        .collect(),
+                ),
             },
             on_success: None,
             on_failure: None,
@@ -1890,7 +2881,13 @@ mod tests {
             meta: StepMeta::default(),
         };
         let index = HashMap::new();
-        let r = Runner::new(index, false, false, Meta::default(), crate::vars::Scope::default());
+        let r = Runner::new(
+            index,
+            false,
+            false,
+            Meta::default(),
+            crate::vars::Scope::default(),
+        );
         let result = r.run_step(&step, 0);
         assert!(result.is_ok());
     }

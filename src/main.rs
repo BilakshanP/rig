@@ -12,7 +12,10 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 #[derive(Parser)]
-#[command(name = "rig", about = "Bootstrap dev environments from a JSON config or .rig bundle")]
+#[command(
+    name = "rig",
+    about = "Bootstrap dev environments from a JSON config or .rig bundle"
+)]
 struct Cli {
     /// Subcommand (omit to run a config/bundle)
     #[command(subcommand)]
@@ -129,24 +132,27 @@ fn main() -> ExitCode {
     let Some(raw_config) = cli.config else {
         eprintln!(
             "{}",
-            style::render("<s fR mb>error:</s> no config/bundle given\n\nFor more information, try '<mb>--help</m>'.")
+            style::render(
+                "<s fR mb>error:</s> no config/bundle given\n\nFor more information, try '<mb>--help</m>'."
+            )
         );
         return ExitCode::FAILURE;
     };
 
-    let vars: HashMap<String, String> = cli.set_vars.iter().filter_map(|s| {
-        let (k, v) = s.split_once('=')?;
-        Some((k.to_string(), v.to_string()))
-    }).collect();
+    let vars: HashMap<String, String> = cli
+        .set_vars
+        .iter()
+        .filter_map(|s| {
+            let (k, v) = s.split_once('=')?;
+            Some((k.to_string(), v.to_string()))
+        })
+        .collect();
 
     // Pure-inspection flags (`--validate`, `--list`, `--describe`, `--vars`)
     // should be able to open a bundle without providing every required
     // variable via `--set`; force placeholder-mode for the manifest parse in
     // that case so undefined vars don't abort the flow.
-    let inspection_only = cli.validate
-        || cli.list
-        || cli.list_vars
-        || cli.describe.is_some();
+    let inspection_only = cli.validate || cli.list || cli.list_vars || cli.describe.is_some();
     let effective_placeholder = cli.placeholder || inspection_only;
 
     // Dispatch: determine what kind of input we have and resolve it to a
@@ -160,7 +166,11 @@ fn main() -> ExitCode {
 
     if is_local_dir {
         // Local directory → look for manifest and treat as bundle source.
-        match bundle::open_directory(std::path::Path::new(&raw_config), &vars, effective_placeholder) {
+        match bundle::open_directory(
+            std::path::Path::new(&raw_config),
+            &vars,
+            effective_placeholder,
+        ) {
             Ok((_cfg, ctx)) => {
                 let manifest = if ctx.root.join("manifest.jsonc").is_file() {
                     ctx.root.join("manifest.jsonc")
@@ -225,7 +235,11 @@ fn main() -> ExitCode {
         }
     } else if bundle::looks_like_bundle(std::path::Path::new(&raw_config)) {
         // Local .rig bundle archive.
-        match bundle::open_bundle(std::path::Path::new(&raw_config), &vars, effective_placeholder) {
+        match bundle::open_bundle(
+            std::path::Path::new(&raw_config),
+            &vars,
+            effective_placeholder,
+        ) {
             Ok((_cfg, ctx)) => {
                 let manifest = if ctx.root.join("manifest.jsonc").is_file() {
                     ctx.root.join("manifest.jsonc")
@@ -260,11 +274,18 @@ fn main() -> ExitCode {
         }
         let name_width = referenced.iter().map(|s| s.len()).max().unwrap_or(0);
         for name in &referenced {
-            let default = meta_vars.get(name)
+            let default = meta_vars
+                .get(name)
                 .map(|v| style::render(&format!("<fc>{v}</f>")))
-                .or_else(|| vars.get(name).map(|v| style::render(&format!("<fc>{v}</f> <md>(from --set)</m>"))))
+                .or_else(|| {
+                    vars.get(name)
+                        .map(|v| style::render(&format!("<fc>{v}</f> <md>(from --set)</m>")))
+                })
                 .unwrap_or_else(|| style::render("<fy>(required)</f>"));
-            println!("{}  {default}", style::render(&format!("<mb>{name:<name_width$}</m>")));
+            println!(
+                "{}  {default}",
+                style::render(&format!("<mb>{name:<name_width$}</m>"))
+            );
         }
         return ExitCode::SUCCESS;
     }
@@ -278,7 +299,14 @@ fn main() -> ExitCode {
     };
 
     if cli.validate {
-        println!("{}", style::render(&format!("<fg>ok:</f> config valid: <mb>{}</m> ({} steps)", cfg.name, cfg.steps.len())));
+        println!(
+            "{}",
+            style::render(&format!(
+                "<fg>ok:</f> config valid: <mb>{}</m> ({} steps)",
+                cfg.name,
+                cfg.steps.len()
+            ))
+        );
         return ExitCode::SUCCESS;
     }
 
@@ -296,7 +324,10 @@ fn main() -> ExitCode {
                 return ExitCode::SUCCESS;
             }
             None => {
-                eprintln!("{}", style::render(&format!("<fr>error:</f> no step with id '<fc>{id}</f>'")));
+                eprintln!(
+                    "{}",
+                    style::render(&format!("<fr>error:</f> no step with id '<fc>{id}</f>'"))
+                );
                 return ExitCode::FAILURE;
             }
         }
@@ -308,27 +339,46 @@ fn main() -> ExitCode {
     }
     let runner = match bundle_ctx.take() {
         Some(ctx) => {
-            let mut r = executor::Runner::new_with_bundle(index, cli.dry_run, cli.verbose, cfg.meta.clone(), scope, ctx);
+            let mut r = executor::Runner::new_with_bundle(
+                index,
+                cli.dry_run,
+                cli.verbose,
+                cfg.meta.clone(),
+                scope,
+                ctx,
+            );
             r.quiet = cli.quiet;
             r.cli_silent = cli.silent;
             r
         }
         None => {
-            let mut r = executor::Runner::new(index, cli.dry_run, cli.verbose, cfg.meta.clone(), scope);
+            let mut r =
+                executor::Runner::new(index, cli.dry_run, cli.verbose, cfg.meta.clone(), scope);
             r.quiet = cli.quiet;
             r.cli_silent = cli.silent;
             r
         }
     };
-    let cwd = std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default();
+    let cwd = std::env::current_dir()
+        .map(|p| p.display().to_string())
+        .unwrap_or_default();
 
     if cli.dry_run {
-        println!("{}", style::render(&format!("<fc>[dry-run]</f> <mb>{}</m> <md>({cwd})</m>", cfg.name)));
+        println!(
+            "{}",
+            style::render(&format!(
+                "<fc>[dry-run]</f> <mb>{}</m> <md>({cwd})</m>",
+                cfg.name
+            ))
+        );
         if let Some(id) = &cli.only {
             match runner.index.get(id) {
                 Some(step) => runner.dry_run_audit(&cfg, std::slice::from_ref(step)),
                 None => {
-                    eprintln!("{}", style::render(&format!("<fr>error:</f> no step with id '<fc>{id}</f>'")));
+                    eprintln!(
+                        "{}",
+                        style::render(&format!("<fr>error:</f> no step with id '<fc>{id}</f>'"))
+                    );
                     return ExitCode::FAILURE;
                 }
             }
@@ -339,20 +389,32 @@ fn main() -> ExitCode {
     }
 
     if cli.quiet < 1 {
-        println!("{}", style::render(&format!("<fg>Running:</f> <mb>{}</m> <md>({cwd})</m>", cfg.name)));
+        println!(
+            "{}",
+            style::render(&format!(
+                "<fg>Running:</f> <mb>{}</m> <md>({cwd})</m>",
+                cfg.name
+            ))
+        );
     }
 
     if let Some(id) = &cli.only {
         match runner.index.get(id) {
             Some(step) => {
                 if let Err(e) = runner.run_step(step, 0) {
-                    eprintln!("{}", style::render(&format!("<fr>error in step '{id}':</f> {e}")));
+                    eprintln!(
+                        "{}",
+                        style::render(&format!("<fr>error in step '{id}':</f> {e}"))
+                    );
                     report_bundle_staging(&runner);
                     return ExitCode::FAILURE;
                 }
             }
             None => {
-                eprintln!("{}", style::render(&format!("<fr>error:</f> no step with id '<fc>{id}</f>'")));
+                eprintln!(
+                    "{}",
+                    style::render(&format!("<fr>error:</f> no step with id '<fc>{id}</f>'"))
+                );
                 return ExitCode::FAILURE;
             }
         }
@@ -371,7 +433,10 @@ fn main() -> ExitCode {
         if bctx.will_keep_staging() && cli.quiet < 1 {
             println!(
                 "{}",
-                style::render(&format!("<md>bundle staged at:</m> {}", bctx.root.display()))
+                style::render(&format!(
+                    "<md>bundle staged at:</m> {}",
+                    bctx.root.display()
+                ))
             );
         }
     }
@@ -390,7 +455,10 @@ fn report_bundle_staging(runner: &executor::Runner) {
     {
         eprintln!(
             "{}",
-            style::render(&format!("<md>bundle left staged at:</m> {}", bctx.root.display()))
+            style::render(&format!(
+                "<md>bundle left staged at:</m> {}",
+                bctx.root.display()
+            ))
         );
     }
 }

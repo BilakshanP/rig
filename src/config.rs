@@ -62,9 +62,15 @@ impl ShellConfig {
     /// Platform default: `sh -c` on Unix, `cmd /C` on Windows.
     pub fn platform_default() -> Self {
         if cfg!(windows) {
-            Self { cmd: "cmd".into(), args: vec!["/C".into()] }
+            Self {
+                cmd: "cmd".into(),
+                args: vec!["/C".into()],
+            }
         } else {
-            Self { cmd: "sh".into(), args: vec!["-c".into()] }
+            Self {
+                cmd: "sh".into(),
+                args: vec!["-c".into()],
+            }
         }
     }
 
@@ -77,17 +83,23 @@ impl ShellConfig {
             "powershell" | "pwsh" => (s, vec!["-Command"]),
             other => (other, vec!["-c"]),
         };
-        Self { cmd: cmd.into(), args: args.into_iter().map(Into::into).collect() }
+        Self {
+            cmd: cmd.into(),
+            args: args.into_iter().map(Into::into).collect(),
+        }
     }
 }
 
 impl Default for ShellConfig {
-    fn default() -> Self { Self::platform_default() }
+    fn default() -> Self {
+        Self::platform_default()
+    }
 }
 
 impl<'de> Deserialize<'de> for ShellConfig {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where D: Deserializer<'de>
+    where
+        D: Deserializer<'de>,
     {
         #[derive(Deserialize)]
         #[serde(untagged)]
@@ -113,9 +125,17 @@ pub struct Step {
     #[serde(default)]
     pub description: Option<String>,
     pub action: Action,
-    #[serde(default, rename = "on-success", deserialize_with = "de_opt_single_or_vec")]
+    #[serde(
+        default,
+        rename = "on-success",
+        deserialize_with = "de_opt_single_or_vec"
+    )]
     pub on_success: Option<Vec<StepRef>>,
-    #[serde(default, rename = "on-failure", deserialize_with = "de_opt_single_or_vec")]
+    #[serde(
+        default,
+        rename = "on-failure",
+        deserialize_with = "de_opt_single_or_vec"
+    )]
     pub on_failure: Option<Vec<StepRef>>,
     #[serde(default, rename = "on-return", deserialize_with = "de_opt_return_map")]
     pub on_return: Option<HashMap<String, Vec<StepRef>>>,
@@ -310,12 +330,27 @@ impl Default for ExpandFlags {
 
 impl ExpandFlags {
     /// Every field enabled — `{{...}}` is substituted everywhere it applies.
-    pub const ALL: Self = Self { from: true, to: true, path: true, contents: true };
+    pub const ALL: Self = Self {
+        from: true,
+        to: true,
+        path: true,
+        contents: true,
+    };
     /// No substitution anywhere — all path/content fields are used byte-exact.
-    pub const NONE: Self = Self { from: false, to: false, path: false, contents: false };
+    pub const NONE: Self = Self {
+        from: false,
+        to: false,
+        path: false,
+        contents: false,
+    };
     /// Path components rendered, file contents left byte-exact. This is the
     /// default and matches the pre-bundle behavior.
-    pub const PATHS: Self = Self { from: true, to: true, path: true, contents: false };
+    pub const PATHS: Self = Self {
+        from: true,
+        to: true,
+        path: true,
+        contents: false,
+    };
 }
 
 impl<'de> Deserialize<'de> for ExpandFlags {
@@ -337,7 +372,12 @@ impl<'de> Deserialize<'de> for ExpandFlags {
         match Raw::deserialize(d)? {
             Raw::Bool(true) => Ok(Self::ALL),
             Raw::Bool(false) => Ok(Self::NONE),
-            Raw::Object { from, to, path, contents } => {
+            Raw::Object {
+                from,
+                to,
+                path,
+                contents,
+            } => {
                 // Fall back to the per-field defaults from Self::PATHS for
                 // omitted keys so `{ "contents": true }` still renders paths.
                 let d = Self::PATHS;
@@ -451,13 +491,17 @@ where
         Many(Vec<StepRef>),
     }
     let raw: HashMap<String, OneOrMany> = HashMap::deserialize(d)?;
-    Ok(Some(raw.into_iter().map(|(k, v)| {
-        let v = match v {
-            OneOrMany::One(sr) => vec![sr],
-            OneOrMany::Many(v) => v,
-        };
-        (k, v)
-    }).collect()))
+    Ok(Some(
+        raw.into_iter()
+            .map(|(k, v)| {
+                let v = match v {
+                    OneOrMany::One(sr) => vec![sr],
+                    OneOrMany::Many(v) => v,
+                };
+                (k, v)
+            })
+            .collect(),
+    ))
 }
 
 /// Deserialize `cond.when`: HashMap<String, StepRef | Vec<StepRef>> into HashMap<String, Vec<StepRef>>.
@@ -472,13 +516,16 @@ where
         Many(Vec<StepRef>),
     }
     let raw: HashMap<String, OneOrMany> = HashMap::deserialize(d)?;
-    Ok(raw.into_iter().map(|(k, v)| {
-        let v = match v {
-            OneOrMany::One(sr) => vec![sr],
-            OneOrMany::Many(v) => v,
-        };
-        (k, v)
-    }).collect())
+    Ok(raw
+        .into_iter()
+        .map(|(k, v)| {
+            let v = match v {
+                OneOrMany::One(sr) => vec![sr],
+                OneOrMany::Many(v) => v,
+            };
+            (k, v)
+        })
+        .collect())
 }
 
 // -- Errors --
@@ -501,25 +548,38 @@ impl fmt::Display for ConfigError {
             Self::DuplicateId(id) => write!(f, "duplicate step id: {id}"),
             Self::UnknownRef(id) => write!(f, "unknown step reference: {id}"),
             Self::UndefinedVar(name) => write!(f, "undefined variable: {name}"),
-            Self::InvalidMarkup(step, msg) => write!(f, "invalid aml markup in step '{step}': {msg}"),
+            Self::InvalidMarkup(step, msg) => {
+                write!(f, "invalid aml markup in step '{step}': {msg}")
+            }
         }
     }
 }
 
 impl From<io::Error> for ConfigError {
-    fn from(e: io::Error) -> Self { Self::Io(e) }
+    fn from(e: io::Error) -> Self {
+        Self::Io(e)
+    }
 }
 
 impl From<serde_json::Error> for ConfigError {
-    fn from(e: serde_json::Error) -> Self { Self::Parse(e) }
+    fn from(e: serde_json::Error) -> Self {
+        Self::Parse(e)
+    }
 }
 
 // -- Parser --
 
-pub fn parse_config(path: &str, cli_vars: &HashMap<String, String>, placeholder: bool) -> Result<Config, ConfigError> {
+pub fn parse_config(
+    path: &str,
+    cli_vars: &HashMap<String, String>,
+    placeholder: bool,
+) -> Result<Config, ConfigError> {
     let content = std::fs::read_to_string(path)?;
     let mut buf = Vec::new();
-    io::Read::read_to_end(&mut json_comments::StripComments::new(content.as_bytes()), &mut buf)?;
+    io::Read::read_to_end(
+        &mut json_comments::StripComments::new(content.as_bytes()),
+        &mut buf,
+    )?;
     let json = String::from_utf8_lossy(&buf).into_owned();
 
     let config: Config = serde_json::from_str(&json)?;
@@ -532,8 +592,14 @@ pub fn parse_config(path: &str, cli_vars: &HashMap<String, String>, placeholder:
 
 /// Validate variable usage: check that all referenced names are either known constants,
 /// built-ins, or declared @-vars (which will be provided by var actions or --set).
-fn validate_vars(config: &Config, cli_vars: &HashMap<String, String>, placeholder: bool) -> Result<(), ConfigError> {
-    if placeholder { return Ok(()); }
+fn validate_vars(
+    config: &Config,
+    cli_vars: &HashMap<String, String>,
+    placeholder: bool,
+) -> Result<(), ConfigError> {
+    if placeholder {
+        return Ok(());
+    }
 
     let meta_vars = crate::vars::flatten_vars(&config.meta.vars);
 
@@ -568,7 +634,9 @@ fn validate_vars(config: &Config, cli_vars: &HashMap<String, String>, placeholde
     }
 
     // Also: any `var` action targeting an immutable var is a parse-time error.
-    for step in &config.steps { check_var_action_writes(step)?; }
+    for step in &config.steps {
+        check_var_action_writes(step)?;
+    }
 
     Ok(())
 }
@@ -583,10 +651,17 @@ fn check_var_action_writes(step: &Step) -> Result<(), ConfigError> {
                     vr.display()
                 )));
             }
-            None => return Err(ConfigError::UndefinedVar(format!("invalid var action target: {name}"))),
+            None => {
+                return Err(ConfigError::UndefinedVar(format!(
+                    "invalid var action target: {name}"
+                )));
+            }
         }
     }
-    if let Action::Io { op: IoOp::Read { read, .. } } = &step.action {
+    if let Action::Io {
+        op: IoOp::Read { read, .. },
+    } = &step.action
+    {
         match crate::vars::VarRef::parse(read) {
             Some(vr) if vr.is_runtime_writable() => {}
             Some(vr) => {
@@ -595,11 +670,17 @@ fn check_var_action_writes(step: &Step) -> Result<(), ConfigError> {
                     vr.display()
                 )));
             }
-            None => return Err(ConfigError::UndefinedVar(format!("invalid io read target: {read}"))),
+            None => {
+                return Err(ConfigError::UndefinedVar(format!(
+                    "invalid io read target: {read}"
+                )));
+            }
         }
     }
     for child in &step.then {
-        if let StepRef::Inline(s) = child { check_var_action_writes(s)?; }
+        if let StepRef::Inline(s) = child {
+            check_var_action_writes(s)?;
+        }
     }
     Ok(())
 }
@@ -607,29 +688,43 @@ fn check_var_action_writes(step: &Step) -> Result<(), ConfigError> {
 /// Walk the entire config and collect all {{var}} references from string fields.
 fn collect_refs_in_config(config: &Config, refs: &mut Vec<crate::vars::VarRef>) {
     refs.extend(crate::vars::scan_refs(&config.name));
-    if let Some(d) = &config.description { refs.extend(crate::vars::scan_refs(d)); }
+    if let Some(d) = &config.description {
+        refs.extend(crate::vars::scan_refs(d));
+    }
     if let Some(log) = &config.meta.log {
         refs.extend(crate::vars::scan_refs(log));
     }
-    for step in &config.steps { collect_refs_in_step(step, refs); }
+    for step in &config.steps {
+        collect_refs_in_step(step, refs);
+    }
 }
 
 fn collect_refs_in_step(step: &Step, refs: &mut Vec<crate::vars::VarRef>) {
     refs.extend(crate::vars::scan_refs(&step.name));
-    if let Some(d) = &step.description { refs.extend(crate::vars::scan_refs(d)); }
+    if let Some(d) = &step.description {
+        refs.extend(crate::vars::scan_refs(d));
+    }
     collect_refs_in_action(&step.action, refs);
     for child in &step.then {
-        if let StepRef::Inline(s) = child { collect_refs_in_step(s, refs); }
+        if let StepRef::Inline(s) = child {
+            collect_refs_in_step(s, refs);
+        }
     }
 }
 
 fn collect_refs_in_action(action: &Action, refs: &mut Vec<crate::vars::VarRef>) {
     match action {
         Action::Shell { commands, dir, env } => {
-            for c in commands { refs.extend(crate::vars::scan_refs(c)); }
-            if let Some(d) = dir { refs.extend(crate::vars::scan_refs(d)); }
+            for c in commands {
+                refs.extend(crate::vars::scan_refs(c));
+            }
+            if let Some(d) = dir {
+                refs.extend(crate::vars::scan_refs(d));
+            }
             if let Some(e) = env {
-                for v in e.values() { refs.extend(crate::vars::scan_refs(v)); }
+                for v in e.values() {
+                    refs.extend(crate::vars::scan_refs(v));
+                }
             }
         }
         Action::Git { repo, dest, .. } => {
@@ -638,20 +733,30 @@ fn collect_refs_in_action(action: &Action, refs: &mut Vec<crate::vars::VarRef>) 
         }
         Action::Fs { op, .. } => match op {
             FsOp::Create { path, content, .. } => {
-                for p in path { refs.extend(crate::vars::scan_refs(p)); }
-                if let Some(c) = content { refs.extend(crate::vars::scan_refs(c)); }
+                for p in path {
+                    refs.extend(crate::vars::scan_refs(p));
+                }
+                if let Some(c) = content {
+                    refs.extend(crate::vars::scan_refs(c));
+                }
             }
             FsOp::Delete { path, .. } => {
-                for p in path { refs.extend(crate::vars::scan_refs(p)); }
+                for p in path {
+                    refs.extend(crate::vars::scan_refs(p));
+                }
             }
-            FsOp::Symlink { from, to, .. } | FsOp::Copy { from, to, .. } | FsOp::Move { from, to, .. } => {
+            FsOp::Symlink { from, to, .. }
+            | FsOp::Copy { from, to, .. }
+            | FsOp::Move { from, to, .. } => {
                 refs.extend(crate::vars::scan_refs(from));
                 refs.extend(crate::vars::scan_refs(to));
             }
         },
         Action::Io { op } => match op {
             IoOp::Write { message, .. } => refs.extend(crate::vars::scan_refs(message)),
-            IoOp::Read { prompt: Some(p), .. } => refs.extend(crate::vars::scan_refs(p)),
+            IoOp::Read {
+                prompt: Some(p), ..
+            } => refs.extend(crate::vars::scan_refs(p)),
             _ => {}
         },
         Action::Var { source, .. } => match source {
@@ -661,13 +766,15 @@ fn collect_refs_in_action(action: &Action, refs: &mut Vec<crate::vars::VarRef>) 
         },
         Action::Cond { cmp, .. } => {
             refs.extend(crate::vars::scan_refs(cmp));
-        },
+        }
         Action::Rig { file, set } => {
             refs.extend(crate::vars::scan_refs(file));
             if let Some(s) = set {
-                for v in s.values() { refs.extend(crate::vars::scan_refs(v)); }
+                for v in s.values() {
+                    refs.extend(crate::vars::scan_refs(v));
+                }
             }
-        },
+        }
     }
 }
 
@@ -675,37 +782,52 @@ fn collect_refs_in_action(action: &Action, refs: &mut Vec<crate::vars::VarRef>) 
 
 fn validate_unique_ids(config: &Config) -> Result<(), ConfigError> {
     let mut seen = std::collections::HashSet::new();
-    for step in &config.steps { collect_ids(step, &mut seen)?; }
+    for step in &config.steps {
+        collect_ids(step, &mut seen)?;
+    }
     Ok(())
 }
 
-fn collect_ids(step: &Step, seen: &mut std::collections::HashSet<String>) -> Result<(), ConfigError> {
+fn collect_ids(
+    step: &Step,
+    seen: &mut std::collections::HashSet<String>,
+) -> Result<(), ConfigError> {
     if let Some(id) = &step.id
         && !seen.insert(id.clone())
     {
         return Err(ConfigError::DuplicateId(id.clone()));
     }
     for child in &step.then {
-        if let StepRef::Inline(s) = child { collect_ids(s, seen)?; }
+        if let StepRef::Inline(s) = child {
+            collect_ids(s, seen)?;
+        }
     }
     visit_step_refs(step, &mut |sr| {
-        if let StepRef::Inline(s) = sr { collect_ids(s, seen)?; }
+        if let StepRef::Inline(s) = sr {
+            collect_ids(s, seen)?;
+        }
         Ok(())
     })
 }
 
 /// Build the initial runtime scope from meta.vars + CLI --set overrides.
 pub fn build_scope(config: &Config, cli_vars: &HashMap<String, String>) -> crate::vars::Scope {
-    let pwd = std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default();
+    let pwd = std::env::current_dir()
+        .map(|p| p.display().to_string())
+        .unwrap_or_default();
     let mut scope = crate::vars::Scope::new(chrono::Local::now(), pwd);
 
     // Flatten meta.vars and populate the scope (only string/number/bool leaves).
     let flat = crate::vars::flatten_vars(&config.meta.vars);
-    for (k, v) in flat { scope.set(&k, v); }
+    for (k, v) in flat {
+        scope.set(&k, v);
+    }
 
     // Overlay CLI vars (only allowed on `name` or `@name` categories, but we don't
     // enforce at this layer -- validate_vars would catch misuse).
-    for (k, v) in cli_vars { scope.set(k, v.clone()); }
+    for (k, v) in cli_vars {
+        scope.set(k, v.clone());
+    }
 
     scope
 }
@@ -713,14 +835,20 @@ pub fn build_scope(config: &Config, cli_vars: &HashMap<String, String>) -> crate
 /// Build a map of id -> Step for reference resolution.
 pub fn build_step_index(config: &Config) -> HashMap<String, Step> {
     let mut map = HashMap::new();
-    for step in &config.steps { index_step(step, &mut map); }
+    for step in &config.steps {
+        index_step(step, &mut map);
+    }
     map
 }
 
 fn index_step(step: &Step, map: &mut HashMap<String, Step>) {
-    if let Some(id) = &step.id { map.insert(id.clone(), step.clone()); }
+    if let Some(id) = &step.id {
+        map.insert(id.clone(), step.clone());
+    }
     for child in &step.then {
-        if let StepRef::Inline(s) = child { index_step(s, map); }
+        if let StepRef::Inline(s) = child {
+            index_step(s, map);
+        }
     }
 }
 
@@ -728,12 +856,20 @@ fn index_step(step: &Step, map: &mut HashMap<String, Step>) {
 pub fn scan_vars(path: &str) -> Result<Vec<String>, ConfigError> {
     let content = std::fs::read_to_string(path)?;
     let mut buf = Vec::new();
-    io::Read::read_to_end(&mut json_comments::StripComments::new(content.as_bytes()), &mut buf)?;
+    io::Read::read_to_end(
+        &mut json_comments::StripComments::new(content.as_bytes()),
+        &mut buf,
+    )?;
     let json = String::from_utf8_lossy(&buf).into_owned();
     let mut set = std::collections::BTreeSet::new();
     for vr in crate::vars::scan_refs(&json) {
         // Skip built-ins from the listing.
-        if matches!(vr.kind(), crate::vars::VarKind::BuiltinStartup | crate::vars::VarKind::BuiltinRuntime) { continue; }
+        if matches!(
+            vr.kind(),
+            crate::vars::VarKind::BuiltinStartup | crate::vars::VarKind::BuiltinRuntime
+        ) {
+            continue;
+        }
         set.insert(vr.display());
     }
     Ok(set.into_iter().collect())
@@ -743,7 +879,10 @@ pub fn scan_vars(path: &str) -> Result<Vec<String>, ConfigError> {
 pub fn read_meta_vars(path: &str) -> Result<HashMap<String, String>, ConfigError> {
     let content = std::fs::read_to_string(path)?;
     let mut buf = Vec::new();
-    io::Read::read_to_end(&mut json_comments::StripComments::new(content.as_bytes()), &mut buf)?;
+    io::Read::read_to_end(
+        &mut json_comments::StripComments::new(content.as_bytes()),
+        &mut buf,
+    )?;
     let json = String::from_utf8_lossy(&buf).into_owned();
     let value: serde_json::Value = serde_json::from_str(&json)?;
     let vars = match value.pointer("/meta/vars") {
@@ -755,64 +894,134 @@ pub fn read_meta_vars(path: &str) -> Result<HashMap<String, String>, ConfigError
 
 fn validate_refs(config: &Config) -> Result<(), ConfigError> {
     let mut ids = std::collections::HashSet::new();
-    for step in &config.steps { collect_all_ids(step, &mut ids); }
-    for step in &config.steps { check_refs(step, &ids)?; }
+    for step in &config.steps {
+        collect_all_ids(step, &mut ids);
+    }
+    for step in &config.steps {
+        check_refs(step, &ids)?;
+    }
     Ok(())
 }
 
 fn collect_all_ids(step: &Step, ids: &mut std::collections::HashSet<String>) {
-    if let Some(id) = &step.id { ids.insert(id.clone()); }
+    if let Some(id) = &step.id {
+        ids.insert(id.clone());
+    }
     for child in &step.then {
-        if let StepRef::Inline(s) = child { collect_all_ids(s, ids); }
+        if let StepRef::Inline(s) = child {
+            collect_all_ids(s, ids);
+        }
     }
     let _ = visit_step_refs(step, &mut |sr| {
-        if let StepRef::Inline(s) = sr { collect_all_ids(s, ids); }
+        if let StepRef::Inline(s) = sr {
+            collect_all_ids(s, ids);
+        }
         Ok(())
     });
 }
 
 fn check_refs(step: &Step, ids: &std::collections::HashSet<String>) -> Result<(), ConfigError> {
-    for child in &step.then { check_step_ref(child, ids)?; }
+    for child in &step.then {
+        check_step_ref(child, ids)?;
+    }
     visit_step_refs(step, &mut |sr| check_step_ref(sr, ids))
 }
 
-fn check_step_ref(sr: &StepRef, ids: &std::collections::HashSet<String>) -> Result<(), ConfigError> {
+fn check_step_ref(
+    sr: &StepRef,
+    ids: &std::collections::HashSet<String>,
+) -> Result<(), ConfigError> {
     match sr {
-        StepRef::Id(id) => { if !ids.contains(id) { Err(ConfigError::UnknownRef(id.clone())) } else { Ok(()) } }
+        StepRef::Id(id) => {
+            if !ids.contains(id) {
+                Err(ConfigError::UnknownRef(id.clone()))
+            } else {
+                Ok(())
+            }
+        }
         StepRef::Inline(s) => check_refs(s, ids),
     }
 }
 
 /// Visit all StepRef values in a step's handlers and conditions.
-fn visit_step_refs(step: &Step, f: &mut impl FnMut(&StepRef) -> Result<(), ConfigError>) -> Result<(), ConfigError> {
-    if let Some(refs) = &step.on_success { for sr in refs { f(sr)?; } }
-    if let Some(refs) = &step.on_failure { for sr in refs { f(sr)?; } }
-    if let Some(map) = &step.on_return {
-        for refs in map.values() { for sr in refs { f(sr)?; } }
+fn visit_step_refs(
+    step: &Step,
+    f: &mut impl FnMut(&StepRef) -> Result<(), ConfigError>,
+) -> Result<(), ConfigError> {
+    if let Some(refs) = &step.on_success {
+        for sr in refs {
+            f(sr)?;
+        }
     }
-    if let Action::Fs { if_exists: Some(Condition::Execute { execute }), .. } = &step.action { f(execute)?; }
-    if let Action::Fs { if_not_exists: Some(Condition::Execute { execute }), .. } = &step.action { f(execute)?; }
+    if let Some(refs) = &step.on_failure {
+        for sr in refs {
+            f(sr)?;
+        }
+    }
+    if let Some(map) = &step.on_return {
+        for refs in map.values() {
+            for sr in refs {
+                f(sr)?;
+            }
+        }
+    }
+    if let Action::Fs {
+        if_exists: Some(Condition::Execute { execute }),
+        ..
+    } = &step.action
+    {
+        f(execute)?;
+    }
+    if let Action::Fs {
+        if_not_exists: Some(Condition::Execute { execute }),
+        ..
+    } = &step.action
+    {
+        f(execute)?;
+    }
     if let Action::Cond { when, default, .. } = &step.action {
-        for refs in when.values() { for sr in refs { f(sr)?; } }
-        if let Some(refs) = default { for sr in refs { f(sr)?; } }
+        for refs in when.values() {
+            for sr in refs {
+                f(sr)?;
+            }
+        }
+        if let Some(refs) = default {
+            for sr in refs {
+                f(sr)?;
+            }
+        }
     }
     Ok(())
 }
 
 fn validate_markup(config: &Config) -> Result<(), ConfigError> {
-    for step in &config.steps { check_markup(step)?; }
+    for step in &config.steps {
+        check_markup(step)?;
+    }
     Ok(())
 }
 
 fn check_markup(step: &Step) -> Result<(), ConfigError> {
-    if let Action::Io { op: IoOp::Write { markup: true, message, .. } } = &step.action {
+    if let Action::Io {
+        op: IoOp::Write {
+            markup: true,
+            message,
+            ..
+        },
+    } = &step.action
+    {
         use aml::prelude::Document;
         if Document::try_new(message).is_err() {
-            return Err(ConfigError::InvalidMarkup(step.name.clone(), message.clone()));
+            return Err(ConfigError::InvalidMarkup(
+                step.name.clone(),
+                message.clone(),
+            ));
         }
     }
     for child in &step.then {
-        if let StepRef::Inline(s) = child { check_markup(s)?; }
+        if let StepRef::Inline(s) = child {
+            check_markup(s)?;
+        }
     }
     Ok(())
 }
@@ -868,7 +1077,11 @@ mod tests {
         }"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
         match &cfg.steps[0].action {
-            Action::Git { repo, dest, on_conflict } => {
+            Action::Git {
+                repo,
+                dest,
+                on_conflict,
+            } => {
                 assert_eq!(repo, "https://github.com/user/repo.git");
                 assert_eq!(dest, "~/.dotfiles");
                 assert_eq!(*on_conflict, GitOnConflict::Pull);
@@ -888,10 +1101,17 @@ mod tests {
         }"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
         match &cfg.steps[0].action {
-            Action::Fs { op: FsOp::Create { path, recurse, .. }, if_exists, .. } => {
+            Action::Fs {
+                op: FsOp::Create { path, recurse, .. },
+                if_exists,
+                ..
+            } => {
                 assert_eq!(path, &["~/projects/"]);
                 assert!(recurse);
-                assert!(matches!(if_exists, Some(Condition::Action(ConditionAction::Skip))));
+                assert!(matches!(
+                    if_exists,
+                    Some(Condition::Action(ConditionAction::Skip))
+                ));
             }
             _ => panic!("expected Fs Create"),
         }
@@ -908,7 +1128,10 @@ mod tests {
         }"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
         match &cfg.steps[0].action {
-            Action::Fs { op: FsOp::Create { path, .. }, .. } => {
+            Action::Fs {
+                op: FsOp::Create { path, .. },
+                ..
+            } => {
                 assert_eq!(path.len(), 2);
             }
             _ => panic!("expected Fs Create"),
@@ -926,7 +1149,10 @@ mod tests {
         }"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
         match &cfg.steps[0].action {
-            Action::Fs { op: FsOp::Create { content, .. }, .. } => {
+            Action::Fs {
+                op: FsOp::Create { content, .. },
+                ..
+            } => {
                 assert_eq!(content.as_deref(), Some("hello world"));
             }
             _ => panic!("expected Fs Create"),
@@ -944,7 +1170,10 @@ mod tests {
         }"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
         match &cfg.steps[0].action {
-            Action::Fs { op: FsOp::Symlink { from, to, .. }, .. } => {
+            Action::Fs {
+                op: FsOp::Symlink { from, to, .. },
+                ..
+            } => {
                 assert_eq!(from, "~/a");
                 assert_eq!(to, "~/b");
             }
@@ -1058,7 +1287,15 @@ mod tests {
             }]
         }"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
-        assert!(matches!(&cfg.steps[0].action, Action::Io { op: IoOp::Write { level: IoLevel::Info, .. } }));
+        assert!(matches!(
+            &cfg.steps[0].action,
+            Action::Io {
+                op: IoOp::Write {
+                    level: IoLevel::Info,
+                    ..
+                }
+            }
+        ));
     }
 
     #[test]
@@ -1072,7 +1309,10 @@ mod tests {
         }"#;
         let path = std::env::temp_dir().join("rig_dup_test.json");
         std::fs::write(&path, json).unwrap();
-        assert!(matches!(parse_config(path.to_str().unwrap(), &HashMap::new(), false), Err(ConfigError::DuplicateId(_))));
+        assert!(matches!(
+            parse_config(path.to_str().unwrap(), &HashMap::new(), false),
+            Err(ConfigError::DuplicateId(_))
+        ));
         std::fs::remove_file(path).ok();
     }
 
@@ -1088,7 +1328,10 @@ mod tests {
         }"#;
         let path = std::env::temp_dir().join("rig_unknownref_test.json");
         std::fs::write(&path, json).unwrap();
-        assert!(matches!(parse_config(path.to_str().unwrap(), &HashMap::new(), false), Err(ConfigError::UnknownRef(_))));
+        assert!(matches!(
+            parse_config(path.to_str().unwrap(), &HashMap::new(), false),
+            Err(ConfigError::UnknownRef(_))
+        ));
         std::fs::remove_file(path).ok();
     }
 
@@ -1321,7 +1564,10 @@ mod tests {
             bundle.extract_to,
             crate::bundle::ExtractTo::Named(crate::bundle::NamedExtractTo::Home)
         ));
-        assert_eq!(bundle.binary, vec!["*.png".to_string(), "assets/**".to_string()]);
+        assert_eq!(
+            bundle.binary,
+            vec!["*.png".to_string(), "assets/**".to_string()]
+        );
     }
 
     #[test]
@@ -1355,7 +1601,11 @@ mod tests {
             "steps":[{"name":"c","action":{"kind":"fs","copy":{"from":"a","to":"b"}}}]
         }"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
-        if let Action::Fs { op: FsOp::Copy { expand, .. }, .. } = &cfg.steps[0].action {
+        if let Action::Fs {
+            op: FsOp::Copy { expand, .. },
+            ..
+        } = &cfg.steps[0].action
+        {
             assert_eq!(*expand, ExpandFlags::PATHS);
         } else {
             panic!("expected fs copy");
@@ -1369,7 +1619,11 @@ mod tests {
             "steps":[{"name":"c","action":{"kind":"fs","copy":{"from":"a","to":"b","expand":true}}}]
         }"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
-        if let Action::Fs { op: FsOp::Copy { expand, .. }, .. } = &cfg.steps[0].action {
+        if let Action::Fs {
+            op: FsOp::Copy { expand, .. },
+            ..
+        } = &cfg.steps[0].action
+        {
             assert_eq!(*expand, ExpandFlags::ALL);
         } else {
             panic!("expected fs copy");
@@ -1385,7 +1639,11 @@ mod tests {
             "steps":[{"name":"c","action":{"kind":"fs","copy":{"from":"a","to":"b","expand":false}}}]
         }"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
-        if let Action::Fs { op: FsOp::Copy { expand, .. }, .. } = &cfg.steps[0].action {
+        if let Action::Fs {
+            op: FsOp::Copy { expand, .. },
+            ..
+        } = &cfg.steps[0].action
+        {
             assert_eq!(*expand, ExpandFlags::NONE);
         } else {
             panic!("expected fs copy");
@@ -1404,7 +1662,11 @@ mod tests {
             }}}]
         }"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
-        if let Action::Fs { op: FsOp::Copy { expand, .. }, .. } = &cfg.steps[0].action {
+        if let Action::Fs {
+            op: FsOp::Copy { expand, .. },
+            ..
+        } = &cfg.steps[0].action
+        {
             assert_eq!(expand.from, true);
             assert_eq!(expand.to, true);
             assert_eq!(expand.path, true);
@@ -1425,10 +1687,14 @@ mod tests {
             }}}]
         }"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
-        if let Action::Fs { op: FsOp::Copy { expand, .. }, .. } = &cfg.steps[0].action {
+        if let Action::Fs {
+            op: FsOp::Copy { expand, .. },
+            ..
+        } = &cfg.steps[0].action
+        {
             assert_eq!(expand.from, false);
             assert_eq!(expand.to, false);
-            assert_eq!(expand.path, true);     // still default
+            assert_eq!(expand.path, true); // still default
             assert_eq!(expand.contents, false);
         } else {
             panic!("expected fs copy");

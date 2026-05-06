@@ -60,9 +60,7 @@ pub enum ExtractTo {
     /// One of the named locations: `"tmp"` (default), `"cwd"`, `"home"`.
     Named(#[serde(default)] NamedExtractTo),
     /// `{ "path": "/some/where" }` — extract to an explicit path.
-    Custom {
-        path: String,
-    },
+    Custom { path: String },
 }
 
 impl Default for ExtractTo {
@@ -237,8 +235,13 @@ impl std::fmt::Display for BundleError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Io(e) => write!(f, "bundle io error: {e}"),
-            Self::MissingManifest => write!(f, "bundle is missing manifest.json or manifest.jsonc at the root"),
-            Self::PathTraversal(p) => write!(f, "bundle entry escapes archive root: {}", p.display()),
+            Self::MissingManifest => write!(
+                f,
+                "bundle is missing manifest.json or manifest.jsonc at the root"
+            ),
+            Self::PathTraversal(p) => {
+                write!(f, "bundle entry escapes archive root: {}", p.display())
+            }
             Self::NotABundle(p) => write!(f, "not a .rig bundle: {}", p.display()),
             Self::Parse(msg) => write!(f, "bundle parse error: {msg}"),
         }
@@ -246,7 +249,9 @@ impl std::fmt::Display for BundleError {
 }
 
 impl From<std::io::Error> for BundleError {
-    fn from(e: std::io::Error) -> Self { Self::Io(e) }
+    fn from(e: std::io::Error) -> Self {
+        Self::Io(e)
+    }
 }
 
 // -- Public API --
@@ -259,8 +264,8 @@ impl From<std::io::Error> for BundleError {
 /// included.
 pub fn pack(src_dir: &Path, out: &Path) -> Result<(), BundleError> {
     // Verify manifest presence at the root.
-    let has_manifest = src_dir.join("manifest.json").is_file()
-        || src_dir.join("manifest.jsonc").is_file();
+    let has_manifest =
+        src_dir.join("manifest.json").is_file() || src_dir.join("manifest.jsonc").is_file();
     if !has_manifest {
         return Err(BundleError::MissingManifest);
     }
@@ -320,11 +325,10 @@ fn add_dir_recursive(
 pub fn unpack(archive: &Path, out_dir: &Path) -> Result<(), BundleError> {
     std::fs::create_dir_all(out_dir)?;
 
-    let file = std::fs::File::open(archive)
-        .map_err(|e| match e.kind() {
-            std::io::ErrorKind::NotFound => BundleError::NotABundle(archive.to_path_buf()),
-            _ => BundleError::Io(e),
-        })?;
+    let file = std::fs::File::open(archive).map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => BundleError::NotABundle(archive.to_path_buf()),
+        _ => BundleError::Io(e),
+    })?;
     let decoder = flate2::read::GzDecoder::new(file);
     let mut ar = tar::Archive::new(decoder);
 
@@ -432,11 +436,21 @@ pub fn info(archive: &Path) -> Result<BundleInfo, BundleError> {
     )
     .map_err(|e| BundleError::Parse(format!("stripping comments: {e}")))?;
 
-    let value: serde_json::Value = serde_json::from_slice(&stripped)
-        .map_err(|e| BundleError::Parse(format!("parsing {}: {e}", manifest_name.as_deref().unwrap_or("manifest"))))?;
+    let value: serde_json::Value = serde_json::from_slice(&stripped).map_err(|e| {
+        BundleError::Parse(format!(
+            "parsing {}: {e}",
+            manifest_name.as_deref().unwrap_or("manifest")
+        ))
+    })?;
 
-    out.name = value.get("name").and_then(|v| v.as_str()).map(str::to_string);
-    out.version = value.get("version").and_then(|v| v.as_str()).map(str::to_string);
+    out.name = value
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    out.version = value
+        .get("version")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
     out.description = value
         .get("description")
         .and_then(|v| v.as_str())
@@ -503,11 +517,7 @@ pub fn open_bundle(
         .unwrap_or_default();
     let binary = BinaryMatcher::new(&binary_patterns)?;
 
-    let cleanup = cfg
-        .bundle
-        .as_ref()
-        .map(|b| b.cleanup)
-        .unwrap_or_default();
+    let cleanup = cfg.bundle.as_ref().map(|b| b.cleanup).unwrap_or_default();
 
     let ctx = BundleCtx {
         root,
@@ -533,7 +543,13 @@ fn resolve_staging_dir(
         .as_deref()
         .unwrap_or("bundle")
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect::<String>();
 
     match extract_to {
@@ -550,8 +566,11 @@ fn resolve_staging_dir(
             Ok((dir, None))
         }
         ExtractTo::Named(NamedExtractTo::Home) => {
-            let home = dirs::home_dir()
-                .ok_or_else(|| BundleError::Parse("cannot determine home directory; cannot use extract-to: home".into()))?;
+            let home = dirs::home_dir().ok_or_else(|| {
+                BundleError::Parse(
+                    "cannot determine home directory; cannot use extract-to: home".into(),
+                )
+            })?;
             let dir = home.join(format!("rig-{stem}-staging"));
             std::fs::create_dir_all(&dir)?;
             Ok((dir, None))
@@ -602,10 +621,7 @@ pub fn looks_like_git_repo(input: &str) -> bool {
     }
     // If it ends with a known config extension, it's a file URL, not a repo.
     let lower = input.to_lowercase();
-    if lower.ends_with(".json")
-        || lower.ends_with(".jsonc")
-        || lower.ends_with(".rig")
-    {
+    if lower.ends_with(".json") || lower.ends_with(".jsonc") || lower.ends_with(".rig") {
         return false;
     }
     // Match common git hosting patterns: github.com, gitlab.com, bitbucket.org,
@@ -631,9 +647,7 @@ pub fn looks_like_git_repo(input: &str) -> bool {
 /// Shallow-clone a git repo into a temp directory. Returns the temp dir handle
 /// and the path to the cloned repo root.
 pub fn clone_repo(url: &str) -> Result<(tempfile::TempDir, PathBuf), BundleError> {
-    let td = tempfile::Builder::new()
-        .prefix("rig-repo-")
-        .tempdir()?;
+    let td = tempfile::Builder::new().prefix("rig-repo-").tempdir()?;
     let dest = td.path().join("repo");
     let status = std::process::Command::new("git")
         .args(["clone", "--depth", "1", "--single-branch", url])
@@ -720,11 +734,7 @@ pub fn open_git_repo(
         .map(|b| b.binary.clone())
         .unwrap_or_default();
     let binary = BinaryMatcher::new(&binary_patterns)?;
-    let cleanup = cfg
-        .bundle
-        .as_ref()
-        .map(|b| b.cleanup)
-        .unwrap_or_default();
+    let cleanup = cfg.bundle.as_ref().map(|b| b.cleanup).unwrap_or_default();
 
     let ctx = BundleCtx {
         root,
@@ -754,7 +764,10 @@ mod tests {
     #[test]
     fn bundle_meta_parses_empty() {
         let meta: BundleMeta = serde_json::from_str("{}").unwrap();
-        assert!(matches!(meta.extract_to, ExtractTo::Named(NamedExtractTo::Tmp)));
+        assert!(matches!(
+            meta.extract_to,
+            ExtractTo::Named(NamedExtractTo::Tmp)
+        ));
         assert_eq!(meta.cleanup, Cleanup::OnSuccess);
         assert!(meta.binary.is_empty());
     }
@@ -762,7 +775,10 @@ mod tests {
     #[test]
     fn bundle_meta_parses_named_extract_to() {
         let meta: BundleMeta = serde_json::from_str(r#"{"extract-to": "home"}"#).unwrap();
-        assert!(matches!(meta.extract_to, ExtractTo::Named(NamedExtractTo::Home)));
+        assert!(matches!(
+            meta.extract_to,
+            ExtractTo::Named(NamedExtractTo::Home)
+        ));
     }
 
     #[test]
@@ -789,7 +805,10 @@ mod tests {
     fn bundle_meta_parses_binary_globs() {
         let meta: BundleMeta =
             serde_json::from_str(r#"{"binary": ["*.png", "assets/**"]}"#).unwrap();
-        assert_eq!(meta.binary, vec!["*.png".to_string(), "assets/**".to_string()]);
+        assert_eq!(
+            meta.binary,
+            vec!["*.png".to_string(), "assets/**".to_string()]
+        );
     }
 
     #[test]
@@ -856,9 +875,15 @@ mod tests {
     fn pack_unpack_round_trip_preserves_tree() {
         // Source tree: manifest + a nested file + a file with literal {{braces}}.
         let src = tempfile::tempdir().unwrap();
-        write(&src.path().join("manifest.jsonc"), r#"{"name":"t","version":"0.0.1","steps":[]}"#);
+        write(
+            &src.path().join("manifest.jsonc"),
+            r#"{"name":"t","version":"0.0.1","steps":[]}"#,
+        );
         write(&src.path().join("src/hello.txt"), "hello world");
-        write(&src.path().join("{{name}}/pyproject.toml"), "[project]\nname = \"x\"\n");
+        write(
+            &src.path().join("{{name}}/pyproject.toml"),
+            "[project]\nname = \"x\"\n",
+        );
 
         let archive_dir = tempfile::tempdir().unwrap();
         let archive = archive_dir.path().join("out.rig");
@@ -886,7 +911,10 @@ mod tests {
     fn looks_like_bundle_by_gzip_magic() {
         // An archive without .rig extension should still be detected via magic bytes.
         let src = tempfile::tempdir().unwrap();
-        write(&src.path().join("manifest.json"), r#"{"name":"t","version":"0.0.1","steps":[]}"#);
+        write(
+            &src.path().join("manifest.json"),
+            r#"{"name":"t","version":"0.0.1","steps":[]}"#,
+        );
         let out = tempfile::tempdir().unwrap();
         let archive = out.path().join("out.tgz"); // wrong extension on purpose
         pack(src.path(), &archive).unwrap();
@@ -984,7 +1012,10 @@ mod tests {
     #[test]
     fn unpack_creates_out_dir_if_missing() {
         let src = tempfile::tempdir().unwrap();
-        write(&src.path().join("manifest.json"), r#"{"name":"t","version":"0.0.1","steps":[]}"#);
+        write(
+            &src.path().join("manifest.json"),
+            r#"{"name":"t","version":"0.0.1","steps":[]}"#,
+        );
         let out = tempfile::tempdir().unwrap();
         let archive = out.path().join("a.rig");
         pack(src.path(), &archive).unwrap();
@@ -1158,7 +1189,10 @@ mod tests {
         let root = ctx.root.clone();
         // Do NOT mark_success — simulating a failed run.
         drop(ctx);
-        assert!(!root.exists(), "Always policy deletes regardless of success");
+        assert!(
+            !root.exists(),
+            "Always policy deletes regardless of success"
+        );
     }
 
     #[test]
@@ -1166,7 +1200,10 @@ mod tests {
         let (_keep_archive, archive) = pack_trivial_bundle("on-success", r#""tmp""#);
         let (_cfg, ctx) = open_bundle(&archive, &Default::default(), false).unwrap();
         let root = ctx.root.clone();
-        assert!(ctx.will_keep_staging(), "unsucceeded OnSuccess keeps staging");
+        assert!(
+            ctx.will_keep_staging(),
+            "unsucceeded OnSuccess keeps staging"
+        );
         drop(ctx);
         assert!(root.exists(), "staging dir kept on failure");
         // Manual cleanup so we don't leak.
@@ -1222,7 +1259,9 @@ mod tests {
     #[test]
     fn looks_like_git_repo_dot_git_suffix() {
         assert!(looks_like_git_repo("https://example.com/foo/bar.git"));
-        assert!(looks_like_git_repo("https://self-hosted.dev/team/project.git"));
+        assert!(looks_like_git_repo(
+            "https://self-hosted.dev/team/project.git"
+        ));
     }
 
     #[test]
@@ -1258,7 +1297,8 @@ mod tests {
         std::fs::write(
             td.path().join("manifest.json"),
             r#"{"name":"test","version":"1.0.0","steps":[]}"#,
-        ).unwrap();
+        )
+        .unwrap();
         let (cfg, ctx) = open_directory(td.path(), &Default::default(), false).unwrap();
         assert_eq!(cfg.name, "test");
         assert_eq!(ctx.root, td.path().canonicalize().unwrap());

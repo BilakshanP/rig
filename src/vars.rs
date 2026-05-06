@@ -64,20 +64,32 @@ impl VarRef {
             None => (rest, None),
         };
 
-        if name_part.is_empty() { return None; }
+        if name_part.is_empty() {
+            return None;
+        }
 
         let mut path = Vec::new();
         for seg in name_part.split('.') {
-            if !is_valid_ident(seg) { return None; }
+            if !is_valid_ident(seg) {
+                return None;
+            }
             path.push(seg.to_string());
         }
 
-        Some(VarRef { prefix, path, format })
+        Some(VarRef {
+            prefix,
+            path,
+            format,
+        })
     }
 
     /// Classify this var reference based on prefix and first-segment case.
     pub fn kind(&self) -> VarKind {
-        let first = self.path.first().map(|s| s.chars().next().unwrap_or('_')).unwrap_or('_');
+        let first = self
+            .path
+            .first()
+            .map(|s| s.chars().next().unwrap_or('_'))
+            .unwrap_or('_');
         let upper = first.is_ascii_uppercase();
         match (&self.prefix, self.path.first().map(|s| s.as_str())) {
             (Prefix::Hash, Some("now")) => VarKind::BuiltinRuntime,
@@ -101,7 +113,11 @@ impl VarRef {
             Prefix::Hash => "#",
             Prefix::At => "@",
         };
-        let fmt = self.format.as_deref().map(|f| format!(":{f}")).unwrap_or_default();
+        let fmt = self
+            .format
+            .as_deref()
+            .map(|f| format!(":{f}"))
+            .unwrap_or_default();
         format!("{p}{}{fmt}", self.key())
     }
 
@@ -113,8 +129,12 @@ impl VarRef {
 
 fn is_valid_ident(s: &str) -> bool {
     let mut chars = s.chars();
-    let Some(first) = chars.next() else { return false; };
-    if !(first.is_ascii_alphabetic() || first == '_') { return false; }
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if !(first.is_ascii_alphabetic() || first == '_') {
+        return false;
+    }
     chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
@@ -295,9 +315,7 @@ fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() || haystack.len() < needle.len() {
         return None;
     }
-    haystack
-        .windows(needle.len())
-        .position(|w| w == needle)
+    haystack.windows(needle.len()).position(|w| w == needle)
 }
 
 /// Flatten a nested JSON object into dot-path keys with string values.
@@ -320,9 +338,15 @@ fn flatten_inner(prefix: &str, value: &serde_json::Value, out: &mut HashMap<Stri
                 flatten_inner(&new_prefix, v, out);
             }
         }
-        serde_json::Value::String(s) => { out.insert(prefix.to_string(), s.clone()); }
-        serde_json::Value::Number(n) => { out.insert(prefix.to_string(), n.to_string()); }
-        serde_json::Value::Bool(b) => { out.insert(prefix.to_string(), b.to_string()); }
+        serde_json::Value::String(s) => {
+            out.insert(prefix.to_string(), s.clone());
+        }
+        serde_json::Value::Number(n) => {
+            out.insert(prefix.to_string(), n.to_string());
+        }
+        serde_json::Value::Bool(b) => {
+            out.insert(prefix.to_string(), b.to_string());
+        }
         _ => {}
     }
 }
@@ -408,24 +432,48 @@ mod tests {
 
     #[test]
     fn kind_classification() {
-        assert_eq!(VarRef::parse("#timestamp").unwrap().kind(), VarKind::BuiltinStartup);
-        assert_eq!(VarRef::parse("#now").unwrap().kind(), VarKind::BuiltinRuntime);
-        assert_eq!(VarRef::parse("#pwd").unwrap().kind(), VarKind::BuiltinStartup);
-        assert_eq!(VarRef::parse("@NAME").unwrap().kind(), VarKind::MutableUpper);
-        assert_eq!(VarRef::parse("@name").unwrap().kind(), VarKind::MutableLower);
+        assert_eq!(
+            VarRef::parse("#timestamp").unwrap().kind(),
+            VarKind::BuiltinStartup
+        );
+        assert_eq!(
+            VarRef::parse("#now").unwrap().kind(),
+            VarKind::BuiltinRuntime
+        );
+        assert_eq!(
+            VarRef::parse("#pwd").unwrap().kind(),
+            VarKind::BuiltinStartup
+        );
+        assert_eq!(
+            VarRef::parse("@NAME").unwrap().kind(),
+            VarKind::MutableUpper
+        );
+        assert_eq!(
+            VarRef::parse("@name").unwrap().kind(),
+            VarKind::MutableLower
+        );
         assert_eq!(VarRef::parse("NAME").unwrap().kind(), VarKind::ConstUpper);
         assert_eq!(VarRef::parse("name").unwrap().kind(), VarKind::ConstLower);
         // Nested: category from first segment
-        assert_eq!(VarRef::parse("@Super.mario").unwrap().kind(), VarKind::MutableUpper);
-        assert_eq!(VarRef::parse("super.Mario").unwrap().kind(), VarKind::ConstLower);
+        assert_eq!(
+            VarRef::parse("@Super.mario").unwrap().kind(),
+            VarKind::MutableUpper
+        );
+        assert_eq!(
+            VarRef::parse("super.Mario").unwrap().kind(),
+            VarKind::ConstLower
+        );
     }
 
     #[test]
     fn flatten_nested_vars() {
-        let v: serde_json::Value = serde_json::from_str(r#"{
+        let v: serde_json::Value = serde_json::from_str(
+            r#"{
             "super": { "mario": { "bros": "smb", "sis": "sms" } },
             "flat": "f"
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
         let f = flatten_vars(&v);
         assert_eq!(f.get("super.mario.bros").unwrap(), "smb");
         assert_eq!(f.get("super.mario.sis").unwrap(), "sms");
@@ -489,7 +537,10 @@ mod tests {
     fn scope_resolves_bundle_builtin_when_set() {
         let mut s = Scope::new(chrono::Local::now(), "/tmp".into());
         s.set_bundle_root("/tmp/stage-xyz".into());
-        assert_eq!(s.substitute("path: {{#bundle}}/x"), "path: /tmp/stage-xyz/x");
+        assert_eq!(
+            s.substitute("path: {{#bundle}}/x"),
+            "path: /tmp/stage-xyz/x"
+        );
     }
 
     #[test]
