@@ -176,7 +176,8 @@ bundle](examples/python-project/)).
 
 Inside a `.rig` bundle, `fs.copy` automatically renders templated file
 contents when the source lives inside the bundle's staging root (bypass with
-`bundle.binary` globs for raw files).
+`bundle.binary` globs for raw files). The `expand: { contents: false }` flag
+has no effect for bundle sources — use `bundle.binary` to opt out of rendering.
 
 ### io
 
