@@ -682,3 +682,26 @@ fn step_env_overrides_meta_env() {
         "global value should be overridden"
     );
 }
+
+#[test]
+fn on_return_fires_with_specific_exit_code() {
+    let src = tempfile::tempdir().unwrap();
+    write(
+        &src.path().join("test.json"),
+        r#"{
+            "name":"on-return-test","version":"1.0.0",
+            "steps":[
+                {"name":"exit42","action":{"kind":"shell","commands":["exit 42"]},"on-return":{"42":"h42"}},
+                {"id":"h42","name":"handler","action":{"kind":"shell","commands":["echo MATCHED_42"]},"meta":{"optional":true}}
+            ]
+        }"#,
+    );
+    let out = bin()
+        .arg(src.path().join("test.json"))
+        .arg("-q")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "should succeed via handler: {stdout}");
+    assert!(stdout.contains("MATCHED_42"), "on-return(42) should fire");
+}

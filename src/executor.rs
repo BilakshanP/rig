@@ -344,7 +344,7 @@ impl Runner {
             }
 
             match self.exec_action(&step.action, &step.meta, &indent, depth) {
-                Ok(code) => {
+                Ok(code) if code == 0 => {
                     // Resolve handler: on-return[code] -> on-return["_"] -> on-success
                     let handler = self.resolve_handler(step, code, true);
                     if let Some(refs) = handler {
@@ -355,6 +355,22 @@ impl Runner {
                         self.run_step_ref(child, depth + 1)?;
                     }
                     return Ok(());
+                }
+                Ok(code) => {
+                    // Non-zero exit: try on-return[code] -> on-return["_"] -> on-failure
+                    let handler = self.resolve_handler(step, code, false);
+                    if let Some(refs) = handler {
+                        self.run_step_refs(refs, depth + 1)?;
+                        for child in &step.then {
+                            self.run_step_ref(child, depth + 1)?;
+                        }
+                        return Ok(());
+                    }
+                    // No handler matched — treat as error for retry
+                    last_err = Some(ExecError::Command(format!(
+                        "command failed (exit {code}): {}",
+                        step.name
+                    )));
                 }
                 Err(e) => {
                     last_err = Some(e);
@@ -623,9 +639,7 @@ impl Runner {
             last_code = output.status.code().unwrap_or(-1);
             self.maybe_print(&output.stdout, &output.stderr, meta);
             if !output.status.success() {
-                return Err(ExecError::Command(format!(
-                    "command failed (exit {last_code}): {cmd}"
-                )));
+                return Ok(last_code);
             }
         }
         Ok(last_code)
