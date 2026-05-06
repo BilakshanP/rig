@@ -806,3 +806,28 @@ fn parallel_flag_runs_dag_order() {
     assert!(a_pos < b_pos, "A should run before B");
     assert!(a_pos < c_pos, "A should run before C");
 }
+
+#[test]
+fn no_parallel_overrides_meta_parallel() {
+    let src = tempfile::tempdir().unwrap();
+    write(
+        &src.path().join("test.json"),
+        r#"{"name":"par","version":"1.0.0","meta":{"parallel":true},"steps":[
+            {"id":"a","name":"A","action":{"kind":"shell","commands":["echo A"]}},
+            {"id":"b","name":"B","depends-on":["a"],"action":{"kind":"shell","commands":["echo B"]}}
+        ]}"#,
+    );
+    // With --no-parallel, should run sequentially (A then B in order)
+    let out = bin()
+        .arg(src.path().join("test.json"))
+        .arg("--no-parallel")
+        .arg("-q")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success());
+    assert!(stdout.contains("A"));
+    assert!(stdout.contains("B"));
+    // A must come before B (sequential)
+    assert!(stdout.find('A').unwrap() < stdout.find('B').unwrap());
+}

@@ -39,6 +39,9 @@ struct Cli {
     /// Run steps in parallel when depends-on allows it
     #[arg(long)]
     parallel: bool,
+    /// Force sequential execution (overrides meta.parallel)
+    #[arg(long)]
+    no_parallel: bool,
     /// Run only the step with this ID
     #[arg(long)]
     only: Option<String>,
@@ -452,7 +455,7 @@ fn main() -> ExitCode {
             }
         }
     } else {
-        let use_parallel = cli.parallel || cfg.meta.parallel;
+        let use_parallel = !cli.no_parallel && (cli.parallel || cfg.meta.parallel);
         let result = if use_parallel {
             runner.run_steps_parallel(&cfg.steps)
         } else {
