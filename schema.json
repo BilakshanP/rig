@@ -3,15 +3,36 @@
     "title": "rig config",
     "description": "Configuration file for rig - a declarative dev environment bootstrapper",
     "type": "object",
-    "required": ["name", "version", "steps"],
+    "required": [
+        "name",
+        "version",
+        "steps"
+    ],
     "properties": {
-        "$schema": { "type": "string" },
-        "name": { "type": "string" },
-        "version": { "type": "string" },
-        "description": { "type": "string" },
-        "meta": { "$ref": "#/definitions/config_meta" },
-        "bundle": { "$ref": "#/definitions/bundle_meta" },
-        "steps": { "type": "array", "items": { "$ref": "#/definitions/step" } }
+        "$schema": {
+            "type": "string"
+        },
+        "name": {
+            "type": "string"
+        },
+        "version": {
+            "type": "string"
+        },
+        "description": {
+            "type": "string"
+        },
+        "meta": {
+            "$ref": "#/definitions/config_meta"
+        },
+        "bundle": {
+            "$ref": "#/definitions/bundle_meta"
+        },
+        "steps": {
+            "type": "array",
+            "items": {
+                "$ref": "#/definitions/step"
+            }
+        }
     },
     "definitions": {
         "bundle_meta": {
@@ -22,26 +43,44 @@
                 "extract-to": {
                     "description": "Where to extract the bundle before running (default: tmp)",
                     "oneOf": [
-                        { "type": "string", "enum": ["tmp", "cwd", "home"] },
+                        {
+                            "type": "string",
+                            "enum": [
+                                "tmp",
+                                "cwd",
+                                "home"
+                            ]
+                        },
                         {
                             "type": "object",
-                            "required": ["path"],
+                            "required": [
+                                "path"
+                            ],
                             "additionalProperties": false,
                             "properties": {
-                                "path": { "type": "string", "description": "Explicit extraction path (~ expanded)" }
+                                "path": {
+                                    "type": "string",
+                                    "description": "Explicit extraction path (~ expanded)"
+                                }
                             }
                         }
                     ]
                 },
                 "cleanup": {
                     "type": "string",
-                    "enum": ["always", "on-success", "never"],
+                    "enum": [
+                        "always",
+                        "on-success",
+                        "never"
+                    ],
                     "default": "on-success",
                     "description": "When to delete the staging directory: always, only on success, or never"
                 },
                 "binary": {
                     "type": "array",
-                    "items": { "type": "string" },
+                    "items": {
+                        "type": "string"
+                    },
                     "description": "Glob patterns (relative to bundle root) for files copied byte-for-byte (no {{...}} substitution in contents)"
                 }
             }
@@ -50,40 +89,88 @@
             "type": "object",
             "description": "Top-level execution defaults",
             "properties": {
-                "log": { "type": "string", "description": "Path to log file (supports {{variables}})" },
+                "log": {
+                    "type": "string",
+                    "description": "Path to log file (supports {{variables}})"
+                },
                 "silent": {
                     "type": "array",
-                    "items": { "type": "string", "enum": ["stdout", "stderr"] },
+                    "items": {
+                        "type": "string",
+                        "enum": [
+                            "stdout",
+                            "stderr"
+                        ]
+                    },
                     "description": "Global default: suppress output"
                 },
-                "sudo": { "type": "boolean", "default": false, "description": "Global default: run shell commands with sudo" },
-                "retries": { "type": "integer", "minimum": 0, "description": "Global default: auto-retry count on failure" },
-                "retry-delay": { "type": "number", "minimum": 0, "description": "Global default: seconds before each retry" },
-                "shell": { "$ref": "#/definitions/shell_config", "description": "Global default shell for command execution" },
-                "parallel": { "type": "boolean", "default": false, "description": "Run steps concurrently when depends-on allows" },
-                "parallel-output": { "type": "string", "enum": ["buffered", "realtime"], "default": "buffered", "description": "Output mode for parallel execution" },
+                "sudo": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Global default: run shell commands with sudo"
+                },
+                "retries": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Global default: auto-retry count on failure"
+                },
+                "retry-delay": {
+                    "type": "number",
+                    "minimum": 0,
+                    "description": "Global default: seconds before each retry"
+                },
+                "shell": {
+                    "$ref": "#/definitions/shell_config",
+                    "description": "Global default shell for command execution"
+                },
+                "parallel": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Run steps concurrently when depends-on allows"
+                },
+                "parallel-output": {
+                    "type": "string",
+                    "enum": [
+                        "buffered",
+                        "realtime"
+                    ],
+                    "default": "buffered",
+                    "description": "Output mode for parallel execution"
+                },
                 "env": {
                     "type": "object",
-                    "additionalProperties": { "type": "string" },
+                    "additionalProperties": {
+                        "type": "string"
+                    },
                     "description": "Global env vars applied to all shell commands (step-level env merges with/overrides)"
                 },
                 "vars": {
                     "type": "object",
                     "description": "Variable defaults (may be nested; overridden by --set). Access via dot notation: {{super.mario.bros}}"
                 }
-            }
+            },
+            "additionalProperties": false
         },
         "step": {
             "type": "object",
-            "required": ["name", "action"],
+            "required": [
+                "name",
+                "action"
+            ],
             "properties": {
                 "id": {
                     "type": "string",
                     "description": "Unique step ID for referencing"
                 },
-                "name": { "type": "string" },
-                "description": { "type": "string" },
-                "action": { "$ref": "#/definitions/action" },
+                "name": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "action": {
+                    "$ref": "#/definitions/action"
+                },
                 "on-success": {
                     "$ref": "#/definitions/step_refs",
                     "description": "Run on exit 0 (unless overridden by on-return)"
@@ -101,7 +188,9 @@
                 },
                 "depends-on": {
                     "type": "array",
-                    "items": { "type": "string" },
+                    "items": {
+                        "type": "string"
+                    },
                     "description": "Step IDs that must run before this step (resolved transitively with --only)"
                 },
                 "then": {
@@ -113,23 +202,37 @@
                                 "type": "string",
                                 "description": "Step ID reference"
                             },
-                            { "$ref": "#/definitions/step" }
+                            {
+                                "$ref": "#/definitions/step"
+                            }
                         ]
                     }
                 },
-                "meta": { "$ref": "#/definitions/meta" }
+                "meta": {
+                    "$ref": "#/definitions/meta"
+                }
             }
         },
         "step_refs": {
             "oneOf": [
-                { "type": "string", "description": "Single step ID" },
-                { "$ref": "#/definitions/step" },
+                {
+                    "type": "string",
+                    "description": "Single step ID"
+                },
+                {
+                    "$ref": "#/definitions/step"
+                },
                 {
                     "type": "array",
                     "items": {
                         "oneOf": [
-                            { "type": "string", "description": "Step ID" },
-                            { "$ref": "#/definitions/step" }
+                            {
+                                "type": "string",
+                                "description": "Step ID"
+                            },
+                            {
+                                "$ref": "#/definitions/step"
+                            }
                         ]
                     }
                 }
@@ -138,14 +241,22 @@
         "step_ref_or_array": {
             "description": "A single step reference (ID string or inline step) or an array of them",
             "oneOf": [
-                { "type": "string" },
-                { "$ref": "#/definitions/step" },
+                {
+                    "type": "string"
+                },
+                {
+                    "$ref": "#/definitions/step"
+                },
                 {
                     "type": "array",
                     "items": {
                         "oneOf": [
-                            { "type": "string" },
-                            { "$ref": "#/definitions/step" }
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "$ref": "#/definitions/step"
+                            }
                         ]
                     }
                 }
@@ -171,7 +282,13 @@
                 },
                 "silent": {
                     "type": "array",
-                    "items": { "type": "string", "enum": ["stdout", "stderr"] },
+                    "items": {
+                        "type": "string",
+                        "enum": [
+                            "stdout",
+                            "stderr"
+                        ]
+                    },
                     "description": "Suppress output (shown with --verbose)"
                 },
                 "retries": {
@@ -184,38 +301,83 @@
                     "minimum": 0,
                     "description": "Seconds to wait before each retry"
                 },
-                "shell": { "$ref": "#/definitions/shell_config", "description": "Override shell for this step" }
-            }
+                "shell": {
+                    "$ref": "#/definitions/shell_config",
+                    "description": "Override shell for this step"
+                }
+            },
+            "additionalProperties": false
         },
         "action": {
             "type": "object",
-            "required": ["kind"],
+            "required": [
+                "kind"
+            ],
             "oneOf": [
-                { "$ref": "#/definitions/action_shell" },
-                { "$ref": "#/definitions/action_git" },
-                { "$ref": "#/definitions/action_fs_create" },
-                { "$ref": "#/definitions/action_fs_symlink" },
-                { "$ref": "#/definitions/action_fs_copy" },
-                { "$ref": "#/definitions/action_fs_move" },
-                { "$ref": "#/definitions/action_fs_delete" },
-                { "$ref": "#/definitions/action_io_write" },
-                { "$ref": "#/definitions/action_io_read" },
-                { "$ref": "#/definitions/action_var_command" },
-                { "$ref": "#/definitions/action_var_file" },
-                { "$ref": "#/definitions/action_var_from" },
-                { "$ref": "#/definitions/action_var_to" },
-                { "$ref": "#/definitions/action_cond" },
-                { "$ref": "#/definitions/action_rig" }
+                {
+                    "$ref": "#/definitions/action_shell"
+                },
+                {
+                    "$ref": "#/definitions/action_git"
+                },
+                {
+                    "$ref": "#/definitions/action_fs_create"
+                },
+                {
+                    "$ref": "#/definitions/action_fs_symlink"
+                },
+                {
+                    "$ref": "#/definitions/action_fs_copy"
+                },
+                {
+                    "$ref": "#/definitions/action_fs_move"
+                },
+                {
+                    "$ref": "#/definitions/action_fs_delete"
+                },
+                {
+                    "$ref": "#/definitions/action_io_write"
+                },
+                {
+                    "$ref": "#/definitions/action_io_read"
+                },
+                {
+                    "$ref": "#/definitions/action_var_command"
+                },
+                {
+                    "$ref": "#/definitions/action_var_file"
+                },
+                {
+                    "$ref": "#/definitions/action_var_from"
+                },
+                {
+                    "$ref": "#/definitions/action_var_to"
+                },
+                {
+                    "$ref": "#/definitions/action_cond"
+                },
+                {
+                    "$ref": "#/definitions/action_rig"
+                }
             ]
         },
         "action_shell": {
             "additionalProperties": false,
             "properties": {
-                "kind": { "const": "shell" },
+                "kind": {
+                    "const": "shell"
+                },
                 "commands": {
                     "oneOf": [
-                        { "type": "string" },
-                        { "type": "array", "items": { "type": "string" } }
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        }
                     ],
                     "description": "Commands run via sh -c (single string or array)"
                 },
@@ -223,20 +385,25 @@
                     "type": "string",
                     "description": "Working directory (~ expanded)"
                 },
-                "parallel": { "type": "boolean", "default": false, "description": "Run steps concurrently when depends-on allows" },
-                "parallel-output": { "type": "string", "enum": ["buffered", "realtime"], "default": "buffered", "description": "Output mode for parallel execution" },
                 "env": {
                     "type": "object",
-                    "additionalProperties": { "type": "string" },
+                    "additionalProperties": {
+                        "type": "string"
+                    },
                     "description": "Env vars"
                 }
             },
-            "required": ["kind", "commands"]
+            "required": [
+                "kind",
+                "commands"
+            ]
         },
         "action_git": {
             "additionalProperties": false,
             "properties": {
-                "kind": { "const": "git" },
+                "kind": {
+                    "const": "git"
+                },
                 "repo": {
                     "type": "string",
                     "description": "Git repository URL"
@@ -247,221 +414,453 @@
                 },
                 "on-conflict": {
                     "type": "string",
-                    "enum": ["skip", "pull", "fail"],
+                    "enum": [
+                        "skip",
+                        "pull",
+                        "fail"
+                    ],
                     "default": "skip",
                     "description": "What to do if dest exists"
                 }
             },
-            "required": ["kind", "repo", "dest"]
+            "required": [
+                "kind",
+                "repo",
+                "dest"
+            ]
         },
         "action_fs_create": {
             "additionalProperties": false,
             "properties": {
-                "kind": { "const": "fs" },
+                "kind": {
+                    "const": "fs"
+                },
                 "create": {
                     "type": "object",
-                    "required": ["path"],
+                    "required": [
+                        "path"
+                    ],
                     "properties": {
-                        "path": { "$ref": "#/definitions/path_spec" },
-                        "recurse": { "type": "boolean", "default": false },
+                        "path": {
+                            "$ref": "#/definitions/path_spec"
+                        },
+                        "recurse": {
+                            "type": "boolean",
+                            "default": false
+                        },
                         "content": {
                             "type": "string",
                             "description": "Inline content to write (files only)"
                         },
-                        "expand": { "$ref": "#/definitions/expand" }
+                        "expand": {
+                            "$ref": "#/definitions/expand"
+                        }
                     }
                 },
-                "if-exists": { "$ref": "#/definitions/condition" },
-                "if-not-exists": { "$ref": "#/definitions/condition" }
+                "if-exists": {
+                    "$ref": "#/definitions/condition"
+                },
+                "if-not-exists": {
+                    "$ref": "#/definitions/condition"
+                }
             },
-            "required": ["kind", "create"]
+            "required": [
+                "kind",
+                "create"
+            ]
         },
         "action_fs_symlink": {
             "additionalProperties": false,
             "properties": {
-                "kind": { "const": "fs" },
+                "kind": {
+                    "const": "fs"
+                },
                 "symlink": {
                     "type": "object",
-                    "required": ["from", "to"],
+                    "required": [
+                        "from",
+                        "to"
+                    ],
                     "properties": {
-                        "from": { "type": "string" },
-                        "to": { "type": "string" },
-                        "expand": { "$ref": "#/definitions/expand" }
+                        "from": {
+                            "type": "string"
+                        },
+                        "to": {
+                            "type": "string"
+                        },
+                        "expand": {
+                            "$ref": "#/definitions/expand"
+                        }
                     }
                 },
-                "if-exists": { "$ref": "#/definitions/condition" }
+                "if-exists": {
+                    "$ref": "#/definitions/condition"
+                }
             },
-            "required": ["kind", "symlink"]
+            "required": [
+                "kind",
+                "symlink"
+            ]
         },
         "action_fs_copy": {
             "additionalProperties": false,
             "properties": {
-                "kind": { "const": "fs" },
+                "kind": {
+                    "const": "fs"
+                },
                 "copy": {
                     "type": "object",
-                    "required": ["from", "to"],
+                    "required": [
+                        "from",
+                        "to"
+                    ],
                     "properties": {
-                        "from": { "type": "string" },
-                        "to": { "type": "string" },
-                        "expand": { "$ref": "#/definitions/expand" }
+                        "from": {
+                            "type": "string"
+                        },
+                        "to": {
+                            "type": "string"
+                        },
+                        "expand": {
+                            "$ref": "#/definitions/expand"
+                        }
                     }
                 },
-                "if-exists": { "$ref": "#/definitions/condition" },
-                "if-not-exists": { "$ref": "#/definitions/condition" }
+                "if-exists": {
+                    "$ref": "#/definitions/condition"
+                },
+                "if-not-exists": {
+                    "$ref": "#/definitions/condition"
+                }
             },
-            "required": ["kind", "copy"]
+            "required": [
+                "kind",
+                "copy"
+            ]
         },
         "action_fs_move": {
             "additionalProperties": false,
             "properties": {
-                "kind": { "const": "fs" },
+                "kind": {
+                    "const": "fs"
+                },
                 "move": {
                     "type": "object",
-                    "required": ["from", "to"],
+                    "required": [
+                        "from",
+                        "to"
+                    ],
                     "properties": {
-                        "from": { "type": "string" },
-                        "to": { "type": "string" },
-                        "expand": { "$ref": "#/definitions/expand" }
+                        "from": {
+                            "type": "string"
+                        },
+                        "to": {
+                            "type": "string"
+                        },
+                        "expand": {
+                            "$ref": "#/definitions/expand"
+                        }
                     }
                 },
-                "if-exists": { "$ref": "#/definitions/condition" },
-                "if-not-exists": { "$ref": "#/definitions/condition" }
+                "if-exists": {
+                    "$ref": "#/definitions/condition"
+                },
+                "if-not-exists": {
+                    "$ref": "#/definitions/condition"
+                }
             },
-            "required": ["kind", "move"]
+            "required": [
+                "kind",
+                "move"
+            ]
         },
         "action_fs_delete": {
             "additionalProperties": false,
             "properties": {
-                "kind": { "const": "fs" },
+                "kind": {
+                    "const": "fs"
+                },
                 "delete": {
                     "type": "object",
-                    "required": ["path"],
+                    "required": [
+                        "path"
+                    ],
                     "properties": {
-                        "path": { "$ref": "#/definitions/path_spec" },
-                        "recurse": { "type": "boolean", "default": false },
-                        "expand": { "$ref": "#/definitions/expand" }
+                        "path": {
+                            "$ref": "#/definitions/path_spec"
+                        },
+                        "recurse": {
+                            "type": "boolean",
+                            "default": false
+                        },
+                        "expand": {
+                            "$ref": "#/definitions/expand"
+                        }
                     }
                 },
-                "if-not-exists": { "$ref": "#/definitions/condition" }
+                "if-not-exists": {
+                    "$ref": "#/definitions/condition"
+                }
             },
-            "required": ["kind", "delete"]
+            "required": [
+                "kind",
+                "delete"
+            ]
         },
         "action_io_write": {
             "additionalProperties": false,
             "properties": {
-                "kind": { "const": "io" },
-                "level": { "type": "string", "enum": ["log", "info", "warn", "error"], "description": "Message severity level" },
-                "message": { "type": "string", "description": "Message text" },
-                "markup": { "type": "boolean", "default": false, "description": "Parse message as aml markup" }
+                "kind": {
+                    "const": "io"
+                },
+                "level": {
+                    "type": "string",
+                    "enum": [
+                        "log",
+                        "info",
+                        "warn",
+                        "error"
+                    ],
+                    "description": "Message severity level"
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Message text"
+                },
+                "markup": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Parse message as aml markup"
+                }
             },
-            "required": ["kind", "level", "message"]
+            "required": [
+                "kind",
+                "level",
+                "message"
+            ]
         },
         "action_io_read": {
             "additionalProperties": false,
             "properties": {
-                "kind": { "const": "io" },
-                "read": { "type": "string", "description": "Target @var to store the line read from stdin" },
-                "prompt": { "type": "string", "description": "Prompt text shown before reading" },
-                "default": { "type": "string", "description": "Value used when the user enters an empty line" },
-                "secret": { "type": "boolean", "default": false, "description": "Mask input with * per keystroke; display captured value as ****" }
+                "kind": {
+                    "const": "io"
+                },
+                "read": {
+                    "type": "string",
+                    "description": "Target @var to store the line read from stdin"
+                },
+                "prompt": {
+                    "type": "string",
+                    "description": "Prompt text shown before reading"
+                },
+                "default": {
+                    "type": "string",
+                    "description": "Value used when the user enters an empty line"
+                },
+                "secret": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Mask input with * per keystroke; display captured value as ****"
+                }
             },
-            "required": ["kind", "read"]
+            "required": [
+                "kind",
+                "read"
+            ]
         },
         "action_var_command": {
             "additionalProperties": false,
             "properties": {
-                "kind": { "const": "var" },
-                "name": { "type": "string", "description": "Variable name (must start with @ for runtime mutability)" },
-                "command": { "type": "string", "description": "Shell command; captures stdout into the variable" }
+                "kind": {
+                    "const": "var"
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Variable name (must start with @ for runtime mutability)"
+                },
+                "command": {
+                    "type": "string",
+                    "description": "Shell command; captures stdout into the variable"
+                }
             },
-            "required": ["kind", "name", "command"]
+            "required": [
+                "kind",
+                "name",
+                "command"
+            ]
         },
         "action_var_file": {
             "additionalProperties": false,
             "properties": {
-                "kind": { "const": "var" },
-                "name": { "type": "string", "description": "Variable name (must start with @ for runtime mutability)" },
-                "file": { "type": "string", "description": "Read this file's contents into the variable (~ expanded)" }
+                "kind": {
+                    "const": "var"
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Variable name (must start with @ for runtime mutability)"
+                },
+                "file": {
+                    "type": "string",
+                    "description": "Read this file's contents into the variable (~ expanded)"
+                }
             },
-            "required": ["kind", "name", "file"]
+            "required": [
+                "kind",
+                "name",
+                "file"
+            ]
         },
         "action_var_from": {
             "additionalProperties": false,
             "properties": {
-                "kind": { "const": "var" },
-                "name": { "type": "string", "description": "Variable name (must start with @ for runtime mutability)" },
+                "kind": {
+                    "const": "var"
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Variable name (must start with @ for runtime mutability)"
+                },
                 "from": {
                     "oneOf": [
-                        { "type": "string", "description": "Step ID whose stdout to capture" },
-                        { "$ref": "#/definitions/step" }
+                        {
+                            "type": "string",
+                            "description": "Step ID whose stdout to capture"
+                        },
+                        {
+                            "$ref": "#/definitions/step"
+                        }
                     ]
                 }
             },
-            "required": ["kind", "name", "from"]
+            "required": [
+                "kind",
+                "name",
+                "from"
+            ]
         },
         "action_var_to": {
             "additionalProperties": false,
             "properties": {
-                "kind": { "const": "var" },
-                "name": { "type": "string", "description": "Variable name (must start with @ for runtime mutability)" },
+                "kind": {
+                    "const": "var"
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Variable name (must start with @ for runtime mutability)"
+                },
                 "to": {
                     "oneOf": [
-                        { "type": "string", "description": "Step ID to feed stdin to" },
-                        { "$ref": "#/definitions/step" }
+                        {
+                            "type": "string",
+                            "description": "Step ID to feed stdin to"
+                        },
+                        {
+                            "$ref": "#/definitions/step"
+                        }
                     ]
                 }
             },
-            "required": ["kind", "name", "to"]
+            "required": [
+                "kind",
+                "name",
+                "to"
+            ]
         },
         "action_cond": {
             "additionalProperties": false,
             "properties": {
-                "kind": { "const": "cond" },
-                "cmp": { "type": "string", "description": "Value to compare (substituted at runtime, e.g. {{@var}})" },
+                "kind": {
+                    "const": "cond"
+                },
+                "cmp": {
+                    "type": "string",
+                    "description": "Value to compare (substituted at runtime, e.g. {{@var}})"
+                },
                 "when": {
                     "type": "object",
                     "description": "Map of string keys to step ref(s). The key matching `cmp` after substitution is executed.",
-                    "additionalProperties": { "$ref": "#/definitions/step_ref_or_array" }
+                    "additionalProperties": {
+                        "$ref": "#/definitions/step_ref_or_array"
+                    }
                 },
                 "default": {
                     "$ref": "#/definitions/step_ref_or_array",
                     "description": "Step ref(s) to run when no `when` key matches (optional)"
                 }
             },
-            "required": ["kind", "cmp", "when"]
+            "required": [
+                "kind",
+                "cmp",
+                "when"
+            ]
         },
         "action_rig": {
             "additionalProperties": false,
             "properties": {
-                "kind": { "const": "rig" },
-                "file": { "type": "string", "description": "Path or URL to a sub-config (.json/.jsonc) to execute" },
+                "kind": {
+                    "const": "rig"
+                },
+                "file": {
+                    "type": "string",
+                    "description": "Path or URL to a sub-config (.json/.jsonc) to execute"
+                },
                 "set": {
                     "type": "object",
-                    "additionalProperties": { "type": "string" },
+                    "additionalProperties": {
+                        "type": "string"
+                    },
                     "description": "Variables to pass to the sub-config (overrides parent scope)"
                 }
             },
-            "required": ["kind", "file"]
+            "required": [
+                "kind",
+                "file"
+            ]
         },
         "path_spec": {
             "oneOf": [
-                { "type": "string" },
-                { "type": "array", "items": { "type": "string" } }
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
             ],
             "description": "Path or array of paths. Trailing / = directory."
         },
         "expand": {
             "description": "Control {{var}} substitution per-field. Default renders paths but leaves contents byte-exact. Shorthand `true` enables all; `false` disables all.",
             "oneOf": [
-                { "type": "boolean" },
+                {
+                    "type": "boolean"
+                },
                 {
                     "type": "object",
                     "additionalProperties": false,
                     "properties": {
-                        "from":     { "type": "boolean", "default": true, "description": "Substitute {{...}} in the `from` path" },
-                        "to":       { "type": "boolean", "default": true, "description": "Substitute {{...}} in the `to` path" },
-                        "path":     { "type": "boolean", "default": true, "description": "Substitute {{...}} in the `path` field" },
-                        "contents": { "type": "boolean", "default": false, "description": "Substitute {{...}} in file contents (bundle fs.copy)" }
+                        "from": {
+                            "type": "boolean",
+                            "default": true,
+                            "description": "Substitute {{...}} in the `from` path"
+                        },
+                        "to": {
+                            "type": "boolean",
+                            "default": true,
+                            "description": "Substitute {{...}} in the `to` path"
+                        },
+                        "path": {
+                            "type": "boolean",
+                            "default": true,
+                            "description": "Substitute {{...}} in the `path` field"
+                        },
+                        "contents": {
+                            "type": "boolean",
+                            "default": false,
+                            "description": "Substitute {{...}} in file contents (bundle fs.copy)"
+                        }
                     }
                 }
             ]
@@ -470,17 +869,29 @@
             "oneOf": [
                 {
                     "type": "string",
-                    "enum": ["skip", "overwrite", "append", "panic"]
+                    "enum": [
+                        "skip",
+                        "overwrite",
+                        "append",
+                        "panic"
+                    ]
                 },
                 {
                     "type": "object",
-                    "required": ["execute"],
+                    "required": [
+                        "execute"
+                    ],
                     "additionalProperties": false,
                     "properties": {
                         "execute": {
                             "oneOf": [
-                                { "type": "string", "description": "Step ID" },
-                                { "$ref": "#/definitions/step" }
+                                {
+                                    "type": "string",
+                                    "description": "Step ID"
+                                },
+                                {
+                                    "$ref": "#/definitions/step"
+                                }
                             ]
                         }
                     }
@@ -490,14 +901,29 @@
         "shell_config": {
             "description": "Shell configuration. String shorthand (sh, bash, zsh, cmd, powershell, pwsh) or object with cmd and args.",
             "oneOf": [
-                { "type": "string", "description": "Shell shorthand: sh, bash, zsh, fish, cmd, powershell, pwsh" },
+                {
+                    "type": "string",
+                    "description": "Shell shorthand: sh, bash, zsh, fish, cmd, powershell, pwsh"
+                },
                 {
                     "type": "object",
-                    "required": ["cmd", "args"],
+                    "required": [
+                        "cmd",
+                        "args"
+                    ],
                     "additionalProperties": false,
                     "properties": {
-                        "cmd": { "type": "string", "description": "Shell executable" },
-                        "args": { "type": "array", "items": { "type": "string" }, "description": "Arguments before the command string (e.g. [\"-c\"])" }
+                        "cmd": {
+                            "type": "string",
+                            "description": "Shell executable"
+                        },
+                        "args": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "description": "Arguments before the command string (e.g. [\"-c\"])"
+                        }
                     }
                 }
             ]
