@@ -23,6 +23,7 @@ rig setup.json --dry-run    # Full audit — see everything before executing
 rig setup.json --validate   # Parse and validate only
 rig setup.json --only <id>  # Run a single step by ID
 rig setup.json --verbose    # Show suppressed output
+rig setup.json --parallel    # Run steps concurrently (DAG-ordered)
 rig setup.json --list       # One-line summary of all steps
 rig setup.json --describe <id>          # Describe a step in detail
 rig setup.json --describe <id> --depth  # Expand sub-steps recursively
@@ -80,6 +81,7 @@ Configs are JSON or JSONC (comments supported). A config has a name, version, op
     "retries": 2,                    // global default: retry failed steps twice
     "log": "~/logs/{{name}}-{{timestamp}}.log",  // save run transcript
     "env": { "CI": "true" }          // global env vars for all shell commands
+    "parallel": true,                // run steps concurrently when depends-on allows
   },
   "steps": [
     {

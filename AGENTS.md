@@ -104,6 +104,7 @@ tests/
 - `silent`: suppresses stdout/stderr; `--verbose` overrides
 - `dry_run`: full audit showing all steps, meta, conditions, handlers, then, summary
 - `--only <id>`: resolve `depends-on` transitively, then run the target step
+- `--parallel` / `meta.parallel`: run steps in topological order with concurrent execution at each DAG level
 - `--validate`: parse-only validation
 - Runtime substitution: all string fields in actions (`commands`, `dir`, `env`, `repo`, `dest`, `path`, `from`, `to`, `content`, `message`) are substituted via `Scope` before use.
 

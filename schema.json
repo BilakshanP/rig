@@ -60,6 +60,8 @@
                 "retries": { "type": "integer", "minimum": 0, "description": "Global default: auto-retry count on failure" },
                 "retry-delay": { "type": "number", "minimum": 0, "description": "Global default: seconds before each retry" },
                 "shell": { "$ref": "#/definitions/shell_config", "description": "Global default shell for command execution" },
+                "parallel": { "type": "boolean", "default": false, "description": "Run steps concurrently when depends-on allows" },
+                "parallel-output": { "type": "string", "enum": ["buffered", "realtime"], "default": "buffered", "description": "Output mode for parallel execution" },
                 "env": {
                     "type": "object",
                     "additionalProperties": { "type": "string" },
@@ -221,6 +223,8 @@
                     "type": "string",
                     "description": "Working directory (~ expanded)"
                 },
+                "parallel": { "type": "boolean", "default": false, "description": "Run steps concurrently when depends-on allows" },
+                "parallel-output": { "type": "string", "enum": ["buffered", "realtime"], "default": "buffered", "description": "Output mode for parallel execution" },
                 "env": {
                     "type": "object",
                     "additionalProperties": { "type": "string" },
