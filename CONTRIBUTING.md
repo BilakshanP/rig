@@ -5,7 +5,7 @@
 ```bash
 git clone https://github.com/BilakshanP/rig.git
 cd rig
-ln -sf ../../.githooks/pre-commit .git/hooks/pre-commit
+git config core.hooksPath .githooks
 cargo build
 cargo test
 ```
