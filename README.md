@@ -1,6 +1,6 @@
 # rig
 
-A declarative CLI tool for bootstrapping dev environments from JSON configs.
+A powerful, cross-platform CLI tool for automating structured workflows from declarative JSON configs.
 
 ## Install
 
