@@ -705,3 +705,104 @@ fn on_return_fires_with_specific_exit_code() {
     assert!(out.status.success(), "should succeed via handler: {stdout}");
     assert!(stdout.contains("MATCHED_42"), "on-return(42) should fire");
 }
+
+#[test]
+fn graph_shows_edges() {
+    let src = tempfile::tempdir().unwrap();
+    write(
+        &src.path().join("test.json"),
+        r#"{"name":"g","version":"1.0.0","steps":[
+            {"id":"a","name":"A","action":{"kind":"shell","commands":["echo a"]}},
+            {"id":"b","name":"B","depends-on":["a"],"action":{"kind":"shell","commands":["echo b"]}}
+        ]}"#,
+    );
+    let out = bin()
+        .arg(src.path().join("test.json"))
+        .arg("--graph")
+        .output()
+        .unwrap();
+    let stdout = strip_ansi(&String::from_utf8_lossy(&out.stdout));
+    assert!(out.status.success());
+    assert!(stdout.contains("a"), "graph should list step a");
+    assert!(stdout.contains("b"), "graph should list step b");
+}
+
+#[test]
+fn graph_dot_output() {
+    let src = tempfile::tempdir().unwrap();
+    write(
+        &src.path().join("test.json"),
+        r#"{"name":"g","version":"1.0.0","steps":[
+            {"id":"a","name":"A","action":{"kind":"shell","commands":["echo a"]}},
+            {"id":"b","name":"B","depends-on":["a"],"action":{"kind":"shell","commands":["echo b"]}}
+        ]}"#,
+    );
+    let out = bin()
+        .arg(src.path().join("test.json"))
+        .arg("--graph")
+        .arg("--dot")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success());
+    assert!(stdout.contains("digraph"), "should output DOT format");
+    assert!(
+        stdout.contains("\"b\" -> \"a\""),
+        "should have depends-on edge"
+    );
+}
+
+#[test]
+fn rig_action_runs_sub_config() {
+    let src = tempfile::tempdir().unwrap();
+    write(
+        &src.path().join("sub.json"),
+        r#"{"name":"sub","version":"1.0.0","meta":{"vars":{"msg":"default"}},"steps":[{"name":"echo","action":{"kind":"shell","commands":["echo {{msg}}"]}}]}"#,
+    );
+    let sub_path = src.path().join("sub.json").to_str().unwrap().to_string();
+    write(
+        &src.path().join("main.json"),
+        &format!(
+            r#"{{"name":"main","version":"1.0.0","steps":[{{"name":"run-sub","action":{{"kind":"rig","file":"{}","set":{{"msg":"hello"}}}}}}]}}"#,
+            sub_path.replace('\\', "\\\\")
+        ),
+    );
+    let out = bin()
+        .arg(src.path().join("main.json"))
+        .arg("-q")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "rig action should succeed: {stdout}");
+    assert!(
+        stdout.contains("hello"),
+        "sub-config should receive set vars"
+    );
+}
+
+#[test]
+fn parallel_flag_runs_dag_order() {
+    let src = tempfile::tempdir().unwrap();
+    write(
+        &src.path().join("test.json"),
+        r#"{"name":"par","version":"1.0.0","steps":[
+            {"id":"a","name":"A","action":{"kind":"shell","commands":["echo A"]}},
+            {"id":"b","name":"B","depends-on":["a"],"action":{"kind":"shell","commands":["echo B"]}},
+            {"id":"c","name":"C","depends-on":["a"],"action":{"kind":"shell","commands":["echo C"]}}
+        ]}"#,
+    );
+    let out = bin()
+        .arg(src.path().join("test.json"))
+        .arg("--parallel")
+        .arg("-q")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success());
+    // A must appear before B and C
+    let a_pos = stdout.find('A').unwrap();
+    let b_pos = stdout.find('B').unwrap();
+    let c_pos = stdout.find('C').unwrap();
+    assert!(a_pos < b_pos, "A should run before B");
+    assert!(a_pos < c_pos, "A should run before C");
+}
