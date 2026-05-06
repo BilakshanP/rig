@@ -816,13 +816,15 @@ impl Runner {
         // Build scope for sub-config
         let sub_scope = crate::config::build_scope(&cfg, &cli_vars);
         let sub_index = crate::config::build_step_index(&cfg);
-        let sub_runner = Runner::new(
+        let mut sub_runner = Runner::new(
             sub_index,
             self.dry_run,
             self.verbose,
             cfg.meta.clone(),
             sub_scope,
         );
+        sub_runner.quiet = self.quiet;
+        sub_runner.cli_silent = self.cli_silent;
 
         if self.quiet < 1 {
             println!(
