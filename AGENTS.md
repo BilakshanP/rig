@@ -55,6 +55,7 @@ tests/
   - `Var { name, source: VarSource }`
   - `Cond { cmp: String, when: HashMap<String, Vec<StepRef>>, default?: Vec<StepRef> }`
   - `Rig { file: String, set: Option<HashMap<String, String>> }`
+  - `Exit { code: i32, message: Option<String> }`
 - `VarSource` — `Command { command }`, `From { from: StepRef }`, `To { to: StepRef }`, `File { file: String }`
 - `FsOp` — enum; every variant carries `expand: ExpandFlags`:
   - `Create { path: Vec<String>, recurse, content?, expand }` (append supported with content)
@@ -94,6 +95,7 @@ tests/
 - `var`: set `@` variable from command stdout / step stdout / file contents / (stdin feed via `to`)
 - `cond`: substitute `cmp`, match against `when` keys, run matched step ref(s); fall back to `default` if no match
 - `rig`: substitute `file`, parse sub-config, build scope with parent vars + `set` overrides, run sub-config steps
+- `exit`: substitute `message`, terminate run immediately with given `code`; no subsequent steps execute
 - Handler resolution: `on-return[exact code]` → `on-return["_"]` → `on-success`/`on-failure`
 - `then`: run sequentially after action succeeds or is handled; skipped if action fails unhandled
 - `optional`: skipped in normal flow; only runs when referenced

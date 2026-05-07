@@ -15,6 +15,7 @@ A Rust CLI tool called `rig` that reads a JSON/JSONC config and executes setup s
 | `var`   | Set a runtime-mutable `@var` from a step's stdout or a shell command |
 | `cond`  | String-based conditional dispatch: compare a value against keys, run matching step(s) |
 | `rig`   | Execute another config as a sub-config with variable passing |
+| `exit`  | Terminate the run immediately with a given exit code and optional message |
 
 ## Config Structure
 
