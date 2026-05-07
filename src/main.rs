@@ -392,12 +392,7 @@ fn main() -> ExitCode {
         match runner.index.get(id) {
             Some(step) => {
                 if let Err(e) = runner.run_with_deps(step) {
-                    eprintln!(
-                        "{}",
-                        style::render(&format!("<fr>error in step '{id}':</f> {e}"))
-                    );
-                    report_bundle_staging(&runner);
-                    return ExitCode::FAILURE;
+                    return handle_run_error(e, &runner);
                 }
             }
             None => {
@@ -416,9 +411,7 @@ fn main() -> ExitCode {
             runner.run_steps(&cfg.steps)
         };
         if let Err(e) = result {
-            eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
-            report_bundle_staging(&runner);
-            return ExitCode::FAILURE;
+            return handle_run_error(e, &runner);
         }
     }
 
@@ -447,6 +440,18 @@ fn main() -> ExitCode {
 
 /// Print the bundle staging path when the ctx will keep it — helpful on
 /// failure so users can inspect what got unpacked before the error.
+fn handle_run_error(e: executor::ExecError, runner: &executor::Runner) -> ExitCode {
+    if let executor::ExecError::EarlyExit { code, message } = e {
+        if let Some(msg) = message {
+            println!("{}", style::render(&format!("<fc>{msg}</f>")));
+        }
+        return ExitCode::from(code as u8);
+    }
+    eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
+    report_bundle_staging(runner);
+    ExitCode::FAILURE
+}
+
 fn report_bundle_staging(runner: &executor::Runner) {
     if let Some(bctx) = runner.bundle.as_ref()
         && bctx.will_keep_staging()

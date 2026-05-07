@@ -244,6 +244,19 @@ Execute another config file as a sub-config. Parent variables flow down; `set` o
 - Parent scope values are inherited unless overridden by `set`
 - Errors in the sub-config propagate normally (handlers, fallible, retries all work)
 
+### exit
+
+Terminate the run immediately with a given exit code and optional message:
+
+```jsonc
+{ "kind": "exit", "code": 0, "message": "Nothing to do — exiting." }
+{ "kind": "exit", "code": 1, "message": "Unsupported platform: {{#os}}" }
+```
+
+- `code` defaults to 0 (success). Non-zero codes propagate as the process exit code.
+- `message` is optional; substituted at runtime and printed before exiting.
+- No subsequent steps run after an exit action fires.
+
 ## Step Features
 
 ### Handlers: on-success, on-failure, on-return

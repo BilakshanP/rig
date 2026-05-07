@@ -321,6 +321,13 @@ fn describe_inner(
                 }
             }
         }
+        Action::Exit { code, message } => {
+            let msg = message.as_deref().unwrap_or("(no message)");
+            println!(
+                "{ai}{}",
+                style::render(&format!("<md>exit {code}:</m> {msg}"))
+            );
+        }
     }
 
     if let Some(refs) = &step.on_success {

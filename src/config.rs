@@ -247,6 +247,12 @@ pub enum Action {
         #[serde(default)]
         set: Option<HashMap<String, String>>,
     },
+    Exit {
+        #[serde(default)]
+        code: i32,
+        #[serde(default)]
+        message: Option<String>,
+    },
 }
 
 // -- Var --
@@ -792,6 +798,11 @@ fn collect_refs_in_action(action: &Action, refs: &mut Vec<crate::vars::VarRef>) 
                 for v in s.values() {
                     refs.extend(crate::vars::scan_refs(v));
                 }
+            }
+        }
+        Action::Exit { message, .. } => {
+            if let Some(m) = message {
+                refs.extend(crate::vars::scan_refs(m));
             }
         }
     }

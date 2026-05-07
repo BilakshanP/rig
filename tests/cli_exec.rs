@@ -165,3 +165,38 @@ fn no_parallel_overrides_meta_parallel() {
     assert!(stdout.contains("B"));
     assert!(stdout.find('A').unwrap() < stdout.find('B').unwrap());
 }
+
+#[test]
+fn exit_action_terminates_early_with_code() {
+    let src = tempfile::tempdir().unwrap();
+    write(
+        &src.path().join("test.json"),
+        r#"{"name":"exit-test","version":"1.0.0","steps":[
+            {"name":"bail","action":{"kind":"exit","code":0,"message":"done early"}},
+            {"name":"never","action":{"kind":"shell","commands":["echo SHOULD_NOT_RUN"]}}
+        ]}"#,
+    );
+    let out = bin().arg(src.path().join("test.json")).output().unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "exit code 0 should succeed");
+    assert!(stdout.contains("done early"), "message should print");
+    assert!(
+        !stdout.contains("SHOULD_NOT_RUN"),
+        "second step should not run"
+    );
+}
+
+#[test]
+fn exit_action_nonzero_code() {
+    let src = tempfile::tempdir().unwrap();
+    write(
+        &src.path().join("test.json"),
+        r#"{"name":"exit-test","version":"1.0.0","steps":[
+            {"name":"fail","action":{"kind":"exit","code":42,"message":"custom error"}}
+        ]}"#,
+    );
+    let out = bin().arg(src.path().join("test.json")).output().unwrap();
+    assert_eq!(out.status.code(), Some(42));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("custom error"));
+}

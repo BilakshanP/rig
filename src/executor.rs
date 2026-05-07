@@ -13,6 +13,7 @@ pub enum ExecError {
     Io(std::io::Error),
     StepNotFound(String),
     CycleDetected(String),
+    EarlyExit { code: i32, message: Option<String> },
 }
 
 impl fmt::Display for ExecError {
@@ -24,6 +25,10 @@ impl fmt::Display for ExecError {
             Self::CycleDetected(name) => {
                 write!(f, "cycle detected (>{MAX_ENTRIES} entries): {name}")
             }
+            Self::EarlyExit { message, .. } => match message {
+                Some(msg) => write!(f, "{msg}"),
+                None => write!(f, "early exit"),
+            },
         }
     }
 }
@@ -565,6 +570,18 @@ impl Runner {
             Action::Rig { file, set } => {
                 self.exec_rig(file, set.as_ref(), indent, _depth)?;
                 Ok(0)
+            }
+            Action::Exit { code, message } => {
+                let msg = message.as_ref().map(|m| self.subst(m));
+                if self.dry_run {
+                    let display = msg.as_deref().unwrap_or("(no message)");
+                    println!("{indent}  [dry-run] exit {code}: {display}");
+                    return Ok(0);
+                }
+                Err(ExecError::EarlyExit {
+                    code: *code,
+                    message: msg,
+                })
             }
         }
     }
@@ -1902,6 +1919,13 @@ impl Runner {
                         );
                     }
                 }
+            }
+            Action::Exit { code, message } => {
+                let msg = message.as_deref().unwrap_or("(no message)");
+                println!(
+                    "{ai}{}",
+                    style::render(&format!("<md>exit {code}:</m> {msg}"))
+                );
             }
         }
 

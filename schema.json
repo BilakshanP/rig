@@ -358,6 +358,9 @@
                 },
                 {
                     "$ref": "#/definitions/action_rig"
+                },
+                {
+                    "$ref": "#/definitions/action_exit"
                 }
             ]
         },
@@ -815,6 +818,26 @@
             "required": [
                 "kind",
                 "file"
+            ]
+        },
+        "action_exit": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "exit"
+                },
+                "code": {
+                    "type": "integer",
+                    "default": 0,
+                    "description": "Exit code to return (0 = success)"
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Optional message to print before exiting"
+                }
+            },
+            "required": [
+                "kind"
             ]
         },
         "path_spec": {
