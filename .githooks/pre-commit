@@ -1,3 +1,4 @@
 #!/bin/sh
-cargo fmt -- --check && cargo clippy -- -D warnings && \
-{ output=$(cargo test --test cli_schema 2>&1) || { echo "$output" | grep "panicked\|failed"; exit 1; } }
+cargo fmt -- --check > /dev/null 2>&1 || { echo "pre-commit: cargo fmt failed"; exit 1; }
+cargo clippy -- -D warnings > /dev/null 2>&1 || { echo "pre-commit: clippy failed (run 'cargo clippy' for details)"; exit 1; }
+output=$(cargo test --test cli_schema 2>&1) || { echo "pre-commit: schema validation failed"; echo "$output" | grep "panicked\|failed"; exit 1; }

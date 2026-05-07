@@ -1,0 +1,535 @@
+{
+    "$schema": "../../schema.json",
+    "name": "schema-coverage-{{project}}",
+    "version": "1.0.0",
+    "description": "Exercises nearly all schema.json features — safe to run directly",
+    "meta": {
+        "log": "/tmp/rig-test/logs/{{project}}-{{#timestamp}}.log",
+        "silent": ["stdout"],
+        "sudo": false,
+        "retries": 1,
+        "retry-delay": 0.1,
+        "shell": "bash",
+        "parallel": true,
+        "parallel-output": "buffered",
+        "env": { "CI": "true", "TERM": "dumb" },
+        "on-success": "final-success",
+        "on-failure": "final-failure",
+        "vars": {
+            "project": "test-app",
+            "env": "dev",
+            "nested": {
+                "deep": {
+                    "value": "hello"
+                }
+            }
+        }
+    },
+    "bundle": {
+        "extract-to": "tmp",
+        "cleanup": "on-success",
+        "binary": ["*.png", "assets/**"]
+    },
+    "steps": [
+        {
+            "id": "shell-array",
+            "name": "Shell with command array",
+            "action": {
+                "kind": "shell",
+                "commands": ["echo {{project}}", "echo {{nested.deep.value}}"],
+                "dir": "/tmp",
+                "env": { "FOO": "bar" }
+            },
+            "meta": {
+                "optional": false,
+                "fallible": false,
+                "sudo": false,
+                "silent": ["stderr"],
+                "retries": 2,
+                "retry-delay": 0.1,
+                "shell": {
+                    "cmd": "bash",
+                    "args": ["-c"]
+                }
+            }
+        },
+        {
+            "id": "shell-single",
+            "name": "Shell with single command string",
+            "action": {
+                "kind": "shell",
+                "commands": "echo single"
+            }
+        },
+        {
+            "id": "git-clone",
+            "name": "Git clone with pull on conflict",
+            "action": {
+                "kind": "git",
+                "repo": "https://github.com/octocat/Hello-World.git",
+                "dest": "/tmp/rig-test-hello-world",
+                "on-conflict": "pull"
+            },
+            "depends-on": ["shell-array"],
+            "meta": { "optional": true }
+        },
+        {
+            "id": "git-skip",
+            "name": "Git clone with skip",
+            "action": {
+                "kind": "git",
+                "repo": "https://github.com/octocat/Spoon-Knife.git",
+                "dest": "/tmp/rig-test-spoon-knife",
+                "on-conflict": "skip"
+            },
+            "meta": { "optional": true }
+        },
+        {
+            "id": "git-fail",
+            "name": "Git clone with fail",
+            "action": {
+                "kind": "git",
+                "repo": "https://github.com/octocat/Hello-World.git",
+                "dest": "/tmp/rig-test-hello-world-strict",
+                "on-conflict": "fail"
+            },
+            "meta": { "optional": true, "fallible": true }
+        },
+        {
+            "id": "fs-create-dir",
+            "name": "FS create directories",
+            "action": {
+                "kind": "fs",
+                "create": {
+                    "path": ["/tmp/rig-test/projects/", "/tmp/rig-test/tmp/"],
+                    "recurse": true
+                },
+                "if-exists": "skip"
+            }
+        },
+        {
+            "id": "fs-create-file",
+            "name": "FS create file with content",
+            "action": {
+                "kind": "fs",
+                "create": {
+                    "path": "/tmp/rig-test/config/{{project}}.json",
+                    "content": "{\"name\": \"{{project}}\"}",
+                    "recurse": true,
+                    "expand": true
+                },
+                "if-exists": "overwrite",
+                "if-not-exists": "skip"
+            }
+        },
+        {
+            "id": "fs-create-append",
+            "name": "FS create with append",
+            "action": {
+                "kind": "fs",
+                "create": {
+                    "path": "/tmp/rig-test/config/{{project}}.json",
+                    "content": "\n// appended",
+                    "expand": {
+                        "path": true,
+                        "contents": false
+                    }
+                },
+                "if-exists": "append"
+            }
+        },
+        {
+            "id": "fs-symlink",
+            "name": "FS symlink",
+            "action": {
+                "kind": "fs",
+                "symlink": {
+                    "from": "/tmp/rig-test/config/{{project}}.json",
+                    "to": "/tmp/rig-test/link-to-config",
+                    "expand": {
+                        "from": true,
+                        "to": true
+                    }
+                },
+                "if-exists": "overwrite",
+                "if-not-exists": "panic"
+            }
+        },
+        {
+            "id": "fs-copy",
+            "name": "FS copy",
+            "action": {
+                "kind": "fs",
+                "copy": {
+                    "from": "/tmp/rig-test/config/{{project}}.json",
+                    "to": "/tmp/rig-test/config/app.conf",
+                    "expand": false
+                },
+                "if-exists": {
+                    "execute": "backup-handler"
+                },
+                "if-not-exists": "skip"
+            }
+        },
+        {
+            "id": "fs-move",
+            "name": "FS move",
+            "action": {
+                "kind": "fs",
+                "move": {
+                    "from": "/tmp/rig-test/config/app.conf",
+                    "to": "/tmp/rig-test/archive/app.conf"
+                },
+                "if-exists": "overwrite",
+                "if-not-exists": "panic"
+            }
+        },
+        {
+            "id": "fs-delete",
+            "name": "FS delete",
+            "action": {
+                "kind": "fs",
+                "delete": {
+                    "path": "/tmp/rig-test/archive",
+                    "recurse": true,
+                    "expand": {
+                        "path": true
+                    }
+                },
+                "if-exists": "skip",
+                "if-not-exists": "skip"
+            }
+        },
+        {
+            "id": "fs-delete-multi",
+            "name": "FS delete multiple paths",
+            "action": {
+                "kind": "fs",
+                "delete": {
+                    "path": ["/tmp/rig-test/tmp/a", "/tmp/rig-test/tmp/b"],
+                    "recurse": false
+                },
+                "if-not-exists": "skip"
+            }
+        },
+        {
+            "id": "io-log",
+            "name": "IO log level",
+            "action": {
+                "kind": "io",
+                "level": "log",
+                "message": "Starting {{project}} setup..."
+            }
+        },
+        {
+            "id": "io-info",
+            "name": "IO info level",
+            "action": {
+                "kind": "io",
+                "level": "info",
+                "message": "Environment: {{env}}"
+            }
+        },
+        {
+            "id": "io-warn",
+            "name": "IO warn level",
+            "action": {
+                "kind": "io",
+                "level": "warn",
+                "message": "Config may be overwritten"
+            }
+        },
+        {
+            "id": "io-error",
+            "name": "IO error level",
+            "action": {
+                "kind": "io",
+                "level": "error",
+                "message": "Something went wrong"
+            }
+        },
+        {
+            "id": "io-markup",
+            "name": "IO with markup",
+            "action": {
+                "kind": "io",
+                "level": "info",
+                "message": "<fg>Done!</f>",
+                "markup": true
+            }
+        },
+        {
+            "id": "io-read",
+            "name": "IO read input",
+            "action": {
+                "kind": "io",
+                "read": "@user_env",
+                "prompt": "Target environment: ",
+                "default": "dev"
+            },
+            "meta": { "optional": true }
+        },
+        {
+            "id": "io-read-secret",
+            "name": "IO read secret",
+            "action": {
+                "kind": "io",
+                "read": "@token",
+                "prompt": "API token: ",
+                "secret": true
+            },
+            "meta": { "optional": true }
+        },
+        {
+            "id": "var-command",
+            "name": "Var from command",
+            "action": {
+                "kind": "var",
+                "name": "@hash",
+                "command": "echo abc123"
+            }
+        },
+        {
+            "id": "var-file",
+            "name": "Var from file",
+            "action": {
+                "kind": "var",
+                "name": "@config_data",
+                "file": "/tmp/rig-test/config/{{project}}.json"
+            }
+        },
+        {
+            "id": "var-from-id",
+            "name": "Var from step by ID",
+            "action": {
+                "kind": "var",
+                "name": "@build_output",
+                "from": "shell-single"
+            }
+        },
+        {
+            "id": "var-from-inline",
+            "name": "Var from inline step",
+            "action": {
+                "kind": "var",
+                "name": "@inline_result",
+                "from": {
+                    "name": "inline producer",
+                    "action": { "kind": "shell", "commands": "echo produced" }
+                }
+            }
+        },
+        {
+            "id": "var-to-id",
+            "name": "Var to step by ID",
+            "action": {
+                "kind": "var",
+                "name": "@config_data",
+                "to": "shell-single"
+            }
+        },
+        {
+            "id": "var-to-inline",
+            "name": "Var to inline step",
+            "action": {
+                "kind": "var",
+                "name": "@hash",
+                "to": {
+                    "name": "inline consumer",
+                    "action": { "kind": "shell", "commands": "cat" }
+                }
+            }
+        },
+        {
+            "id": "cond-basic",
+            "name": "Cond dispatch",
+            "action": {
+                "kind": "cond",
+                "cmp": "{{env}}",
+                "when": {
+                    "dev": "io-info",
+                    "prod": ["io-warn", "io-log"],
+                    "staging": {
+                        "name": "inline staging",
+                        "action": {
+                            "kind": "io",
+                            "level": "info",
+                            "message": "staging mode"
+                        }
+                    }
+                },
+                "default": "io-error"
+            }
+        },
+        {
+            "id": "cond-no-default",
+            "name": "Cond without default",
+            "action": {
+                "kind": "cond",
+                "cmp": "{{env}}",
+                "when": {
+                    "dev": "io-log"
+                }
+            }
+        },
+        {
+            "id": "rig-sub",
+            "name": "Rig sub-config",
+            "action": {
+                "kind": "rig",
+                "file": "./sub/{{env}}.json",
+                "set": { "name": "{{project}}", "mode": "fast" }
+            },
+            "meta": { "optional": true }
+        },
+        {
+            "id": "rig-no-set",
+            "name": "Rig without set",
+            "action": {
+                "kind": "rig",
+                "file": "./other.json"
+            },
+            "meta": { "optional": true }
+        },
+        {
+            "id": "exit-success",
+            "name": "Exit success",
+            "action": {
+                "kind": "exit",
+                "code": 0,
+                "message": "All done for {{project}}"
+            },
+            "meta": { "optional": true }
+        },
+        {
+            "id": "exit-failure",
+            "name": "Exit failure",
+            "action": {
+                "kind": "exit",
+                "code": 1
+            },
+            "meta": { "optional": true }
+        },
+        {
+            "id": "exit-bare",
+            "name": "Exit bare (defaults)",
+            "action": {
+                "kind": "exit"
+            },
+            "meta": { "optional": true }
+        },
+        {
+            "id": "handlers-demo",
+            "name": "Step with all handlers",
+            "action": {
+                "kind": "shell",
+                "commands": "echo maybe-fail"
+            },
+            "on-success": "io-info",
+            "on-failure": ["io-error", "io-warn"],
+            "on-return": {
+                "1": "io-warn",
+                "2": ["io-error", "io-log"],
+                "_": {
+                    "name": "inline wildcard handler",
+                    "action": {
+                        "kind": "io",
+                        "level": "warn",
+                        "message": "unexpected code"
+                    }
+                }
+            }
+        },
+        {
+            "id": "then-demo",
+            "name": "Step with then sub-steps",
+            "action": {
+                "kind": "shell",
+                "commands": "echo parent"
+            },
+            "then": [
+                "io-log",
+                {
+                    "name": "inline then step",
+                    "action": { "kind": "shell", "commands": "echo child" }
+                }
+            ]
+        },
+        {
+            "id": "depends-demo",
+            "name": "Step with dependencies",
+            "description": "Runs after shell-array and shell-single",
+            "action": {
+                "kind": "shell",
+                "commands": "echo after-deps"
+            },
+            "depends-on": ["shell-array", "shell-single"]
+        },
+        {
+            "id": "backup-handler",
+            "name": "Backup handler (referenced by fs-copy if-exists)",
+            "action": {
+                "kind": "shell",
+                "commands": "echo backing up"
+            },
+            "meta": { "optional": true }
+        },
+        {
+            "id": "final-success",
+            "name": "Global on-success handler",
+            "action": {
+                "kind": "io",
+                "level": "info",
+                "message": "All steps completed successfully"
+            },
+            "meta": { "optional": true }
+        },
+        {
+            "id": "final-failure",
+            "name": "Global on-failure handler",
+            "action": {
+                "kind": "io",
+                "level": "error",
+                "message": "Run failed"
+            },
+            "meta": { "optional": true }
+        },
+        {
+            "id": "shell-custom-shell",
+            "name": "Shell with shell object override",
+            "action": {
+                "kind": "shell",
+                "commands": "echo custom"
+            },
+            "meta": {
+                "shell": {
+                    "cmd": "sh",
+                    "args": ["-c"]
+                }
+            }
+        },
+        {
+            "id": "shell-shorthand-shell",
+            "name": "Shell with shell string shorthand",
+            "action": {
+                "kind": "shell",
+                "commands": "echo shorthand"
+            },
+            "meta": {
+                "shell": "sh"
+            }
+        },
+        {
+            "id": "cleanup",
+            "name": "Cleanup test artifacts",
+            "action": {
+                "kind": "fs",
+                "delete": {
+                    "path": "/tmp/rig-test",
+                    "recurse": true
+                },
+                "if-not-exists": "skip"
+            }
+        }
+    ]
+}

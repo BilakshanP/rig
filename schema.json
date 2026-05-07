@@ -135,7 +135,7 @@
                         "realtime"
                     ],
                     "default": "buffered",
-                    "description": "Output mode for parallel execution"
+                    "description": "Output mode for parallel execution: buffered collects output per-step, realtime interleaves as produced"
                 },
                 "env": {
                     "type": "object",
@@ -161,6 +161,7 @@
         },
         "step": {
             "type": "object",
+            "description": "A single execution step with an action and optional control flow",
             "required": [
                 "name",
                 "action"
@@ -222,6 +223,7 @@
             }
         },
         "step_refs": {
+            "description": "A single step reference (ID string or inline step) or an array of them",
             "oneOf": [
                 {
                     "type": "string",
@@ -246,32 +248,9 @@
                 }
             ]
         },
-        "step_ref_or_array": {
-            "description": "A single step reference (ID string or inline step) or an array of them",
-            "oneOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "$ref": "#/definitions/step"
-                },
-                {
-                    "type": "array",
-                    "items": {
-                        "oneOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "$ref": "#/definitions/step"
-                            }
-                        ]
-                    }
-                }
-            ]
-        },
         "meta": {
             "type": "object",
+            "description": "Per-step execution control flags",
             "properties": {
                 "optional": {
                     "type": "boolean",
@@ -317,16 +296,11 @@
             "additionalProperties": false
         },
         "action": {
+            "description": "The operation a step performs, discriminated by the `kind` field",
             "type": "object",
             "required": [
                 "kind"
             ],
-            "properties": {
-                "kind": {
-                    "type": "string",
-                    "enum": ["shell", "git", "fs", "io", "var", "cond", "rig", "exit"]
-                }
-            },
             "oneOf": [
                 {
                     "$ref": "#/definitions/action_shell"
@@ -457,6 +431,7 @@
                     "required": [
                         "path"
                     ],
+                    "additionalProperties": false,
                     "properties": {
                         "path": {
                             "$ref": "#/definitions/path_spec"
@@ -498,6 +473,7 @@
                         "from",
                         "to"
                     ],
+                    "additionalProperties": false,
                     "properties": {
                         "from": {
                             "type": "string"
@@ -511,6 +487,9 @@
                     }
                 },
                 "if-exists": {
+                    "$ref": "#/definitions/condition"
+                },
+                "if-not-exists": {
                     "$ref": "#/definitions/condition"
                 }
             },
@@ -531,6 +510,7 @@
                         "from",
                         "to"
                     ],
+                    "additionalProperties": false,
                     "properties": {
                         "from": {
                             "type": "string"
@@ -567,6 +547,7 @@
                         "from",
                         "to"
                     ],
+                    "additionalProperties": false,
                     "properties": {
                         "from": {
                             "type": "string"
@@ -602,6 +583,7 @@
                     "required": [
                         "path"
                     ],
+                    "additionalProperties": false,
                     "properties": {
                         "path": {
                             "$ref": "#/definitions/path_spec"
@@ -614,6 +596,9 @@
                             "$ref": "#/definitions/expand"
                         }
                     }
+                },
+                "if-exists": {
+                    "$ref": "#/definitions/condition"
                 },
                 "if-not-exists": {
                     "$ref": "#/definitions/condition"
@@ -738,6 +723,7 @@
                     "description": "Variable name (must start with @ for runtime mutability)"
                 },
                 "from": {
+                    "description": "Step whose stdout to capture into the variable",
                     "oneOf": [
                         {
                             "type": "string",
@@ -766,6 +752,7 @@
                     "description": "Variable name (must start with @ for runtime mutability)"
                 },
                 "to": {
+                    "description": "Step to feed the variable's current value as stdin",
                     "oneOf": [
                         {
                             "type": "string",
@@ -797,11 +784,11 @@
                     "type": "object",
                     "description": "Map of string keys to step ref(s). The key matching `cmp` after substitution is executed.",
                     "additionalProperties": {
-                        "$ref": "#/definitions/step_ref_or_array"
+                        "$ref": "#/definitions/step_refs"
                     }
                 },
                 "default": {
-                    "$ref": "#/definitions/step_ref_or_array",
+                    "$ref": "#/definitions/step_refs",
                     "description": "Step ref(s) to run when no `when` key matches (optional)"
                 }
             },
@@ -855,6 +842,7 @@
             ]
         },
         "path_spec": {
+            "description": "A file/directory path or array of paths. Trailing / indicates a directory.",
             "oneOf": [
                 {
                     "type": "string"
@@ -865,8 +853,7 @@
                         "type": "string"
                     }
                 }
-            ],
-            "description": "Path or array of paths. Trailing / = directory."
+            ]
         },
         "expand": {
             "description": "Control {{var}} substitution per-field. Default renders paths but leaves contents byte-exact. Shorthand `true` enables all; `false` disables all.",
@@ -903,6 +890,7 @@
             ]
         },
         "condition": {
+            "description": "Condition handler for if-exists / if-not-exists: a predefined action or execute a step",
             "oneOf": [
                 {
                     "type": "string",
@@ -936,7 +924,7 @@
             ]
         },
         "shell_config": {
-            "description": "Shell configuration. String shorthand (sh, bash, zsh, cmd, powershell, pwsh) or object with cmd and args.",
+            "description": "Shell configuration. String shorthand (sh, bash, zsh, fish, cmd, powershell, pwsh) or object with cmd and args.",
             "oneOf": [
                 {
                     "type": "string",

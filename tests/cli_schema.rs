@@ -36,6 +36,31 @@ fn examples_conform_to_schema() {
     }
 }
 
+/// Validate the comprehensive schema-coverage fixture against both schema.json and rig --validate.
+#[test]
+fn schema_coverage_fixture_validates() {
+    let schema_str = std::fs::read_to_string("schema.json").expect("schema.json not found");
+    let schema: serde_json::Value =
+        serde_json::from_str(&schema_str).expect("schema.json is not valid JSON");
+    let validator = jsonschema::validator_for(&schema).expect("invalid JSON Schema");
+
+    let path = "tests/fixtures/schema-coverage.json";
+    let content = std::fs::read_to_string(path).expect("schema-coverage.json not found");
+    let json: serde_json::Value =
+        serde_json::from_str(&content).unwrap_or_else(|e| panic!("{path}: {e}"));
+
+    if let Err(e) = validator.validate(&json) {
+        panic!("{path} failed schema validation: {e}");
+    }
+
+    let out = bin().arg(path).arg("--validate").output().unwrap();
+    assert!(
+        out.status.success(),
+        "{path} failed rig --validate: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+}
+
 /// Validate examples with `rig --validate` (catches schema too loose).
 #[test]
 fn examples_pass_rig_validate() {
