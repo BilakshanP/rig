@@ -25,16 +25,16 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "aml"
-version = "0.1.0"
-source = "git+https://github.com/BilakshanP/aml.git?rev=a91cb35#a91cb357933e8100c11cbf4d5215669e2d652e02"
+version = "0.1.1"
+source = "git+https://github.com/BilakshanP/aml?tag=v0.1.1#cad863a54dd76f14bbce26a85a066595ca4bfa40"
 dependencies = [
  "aml-core",
 ]
 
 [[package]]
 name = "aml-core"
-version = "0.1.0"
-source = "git+https://github.com/BilakshanP/aml.git?rev=a91cb35#a91cb357933e8100c11cbf4d5215669e2d652e02"
+version = "0.1.1"
+source = "git+https://github.com/BilakshanP/aml?tag=v0.1.1#cad863a54dd76f14bbce26a85a066595ca4bfa40"
 dependencies = [
  "bitflags",
  "chumsky",
@@ -276,7 +276,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -292,7 +292,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -775,7 +775,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -952,7 +952,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
