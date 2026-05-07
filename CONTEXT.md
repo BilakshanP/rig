@@ -71,7 +71,7 @@ Actions are nested objects with a `kind` discriminator. Steps can have an `id` f
 - **`meta.silent`** — suppress `stdout`/`stderr`; shown with `--verbose`.
 - **`meta.retries`** — auto-retry on failure N times. Overrides global `retries`.
 - **`meta.retry-delay`** — seconds to sleep before each retry.
-- **Top-level `meta`** — global defaults for `retries`, `retry-delay`, `silent`, `sudo`, and `log` (run transcript path).
+- **Top-level `meta`** — global defaults for `retries`, `retry-delay`, `silent`, `sudo`, and `log` (run transcript path). Also `on-success` / `on-failure` step IDs that run after all steps complete or when any step fails unhandled.
 - **`io` action** — write: `level`/`message`/`markup`; read: `read`/`prompt?`/`default?`/`secret?` (stores line from stdin into an `@var`).
 - **`var` action** — set a mutable `@var` from `command` (shell output), `from` (step stdout), `to` (feed variable to step stdin), or `file` (read file contents).
 - **`cond` action** — string-based conditional dispatch: `cmp` is substituted at runtime, matched against `when` keys to run step ref(s); `default` is the fallback. Pairs with `io` read-mode for user-input branching.

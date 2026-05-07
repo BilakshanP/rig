@@ -44,7 +44,7 @@ tests/
 ## Data Model
 
 - `Config` — `name`, `version`, optional `description`, `meta: Meta`, `bundle: Option<BundleMeta>`, `steps: Vec<Step>`
-- `Meta` — `log?`, `silent: Vec<Silent>`, `sudo`, `retries?`, `retry_delay?`, `shell?: ShellConfig`, `vars: serde_json::Value` (nested)
+- `Meta` — `log?`, `silent: Vec<Silent>`, `sudo`, `retries?`, `retry_delay?`, `shell?: ShellConfig`, `env?`, `parallel`, `parallel_output`, `on_success?: String`, `on_failure?: String`, `vars: serde_json::Value` (nested)
 - `Step` — `id?`, `name`, `description?`, `action: Action`, `depends_on: Vec<String>`, `on_success?: Vec<StepRef>`, `on_failure?: Vec<StepRef>`, `on_return?: HashMap<String, Vec<StepRef>>`, `then: Vec<StepRef>`, `meta: StepMeta`
 - `StepRef` — `Id(String)` or `Inline(Box<Step>)`
 - `Action` — tagged enum on `kind`:
