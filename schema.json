@@ -321,6 +321,12 @@
             "required": [
                 "kind"
             ],
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "enum": ["shell", "git", "fs", "io", "var", "cond", "rig", "exit"]
+                }
+            },
             "oneOf": [
                 {
                     "$ref": "#/definitions/action_shell"
