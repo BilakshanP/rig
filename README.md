@@ -17,23 +17,23 @@ cargo install --path .
 ## Usage
 
 ```bash
-rig setup.json              # Run a config
-rig setup.rig               # Run a bundle (see below)
-rig setup.json --dry-run    # Full audit — see everything before executing
-rig setup.json --validate   # Parse and validate only
-rig setup.json --only <id>  # Run a single step by ID
-rig setup.json --verbose    # Show suppressed output
-rig setup.json --parallel    # Run steps concurrently (DAG-ordered)
-rig setup.json --no-parallel # Force sequential (overrides meta.parallel)
-rig setup.json --list       # One-line summary of all steps
-rig setup.json --describe <id>          # Describe a step in detail
-rig setup.json --describe <id> --depth  # Expand sub-steps recursively
+rig setup.json                            # Run a config
+rig setup.rig                             # Run a bundle (see below)
+rig setup.json --dry-run                  # Full audit — see everything before executing
+rig setup.json --validate                 # Parse and validate only
+rig setup.json --only <id>                # Run a single step by ID
+rig setup.json --verbose                  # Show suppressed output
+rig setup.json --parallel                 # Run steps concurrently (DAG-ordered)
+rig setup.json --no-parallel              # Force sequential (overrides meta.parallel)
+rig setup.json --list                     # One-line summary of all steps
+rig setup.json --describe <id>            # Describe a step in detail
+rig setup.json --describe <id> --depth    # Expand sub-steps recursively
 rig setup.json --describe <id> --depth 2  # Expand up to 2 levels
-rig setup.json --graph      # Print the dependency graph (ASCII)
-rig setup.json --dot        # Print the dependency graph (DOT format)
-rig setup.json --edges      # Print the dependency graph (edge list)
-rig setup.json --label      # Include step names as labels in graph output
-rig setup.json --placeholder # Show unresolved variables as placeholders
+rig setup.json --graph                    # Print the dependency graph (ASCII)
+rig setup.json --dot                      # Print the dependency graph (DOT format)
+rig setup.json --edges                    # Print the dependency graph (edge list)
+rig setup.json --label                    # Include step names as labels in graph output
+rig setup.json --placeholder              # Show unresolved variables as placeholders
 ```
 
 ### Output control
@@ -54,7 +54,7 @@ rig https://example.com/setup.jsonc --set project=my-app
 rig https://example.com/setup.rig
 rig https://github.com/user/dev-setup --set name=my-app  # clone repo, find manifest
 rig git@github.com:user/dev-setup.git --set name=my-app  # SSH clone
-rig ./my-template-dir                                     # local directory with manifest
+rig ./my-template-dir                                    # local directory with manifest
 ```
 
 When given a git repo URL (GitHub, GitLab, Bitbucket, Codeberg, or any `.git`
@@ -84,11 +84,11 @@ Configs are JSON or JSONC (comments supported). A config has a name, version, op
   "name": "my-env",
   "version": "1.0.0",
   "meta": {
-    "retries": 2,                    // global default: retry failed steps twice
+    "retries": 2,                                // global default: retry failed steps twice
     "log": "~/logs/{{name}}-{{#timestamp}}.log", // save run transcript
-    "env": { "CI": "true" },         // global env vars for all shell commands
-    "parallel": true,                // run steps concurrently when depends-on allows
-    "parallel-output": true,         // interleave step output in parallel mode
+    "env": { "CI": "true" },                     // global env vars for all shell commands
+    "parallel": true,                            // run steps concurrently when depends-on allows
+    "parallel-output": true,                     // interleave step output in parallel mode
   },
   "steps": [
     {
@@ -378,14 +378,14 @@ Rig has a layered variable system with scopes and mutability. Variables use `{{n
 ### Built-in variables
 
 ```jsonc
-"{{#timestamp}}"         // %Y%m%dT%H%M%S at startup (e.g., 20260504T152259)
+"{{#timestamp}}"          // %Y%m%dT%H%M%S at startup (e.g., 20260504T152259)
 "{{#timestamp:%Y-%m-%d}}" // Custom strftime format
-"{{#now}}"               // Current time, evaluated each use
-"{{#now:%H:%M:%S}}"      // Custom strftime at each use
-"{{#pwd}}"               // Current working directory at startup
-"{{#os}}"                // Operating system: linux, macos, windows
-"{{#arch}}"              // CPU architecture: x86_64, aarch64, etc.
-"{{#bundle}}"            // Absolute path to the bundle staging root (bundle runs only)
+"{{#now}}"                // Current time, evaluated each use
+"{{#now:%H:%M:%S}}"       // Custom strftime at each use
+"{{#pwd}}"                // Current working directory at startup
+"{{#os}}"                 // Operating system: linux, macos, windows
+"{{#arch}}"               // CPU architecture: x86_64, aarch64, etc.
+"{{#bundle}}"             // Absolute path to the bundle staging root (bundle runs only)
 ```
 
 `{{#bundle}}` resolves to the temp/cwd/home/custom staging directory chosen

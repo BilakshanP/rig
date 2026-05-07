@@ -13,7 +13,7 @@ cargo test
 ## Development
 
 ```bash
-cargo run -- examples/dev-env.jsonc --dry-run   # test a config
+cargo run -- examples/dev-env.jsonc --dry-run    # test a config
 cargo clippy                                     # lint
 cargo test                                       # run all tests
 ```

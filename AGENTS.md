@@ -14,7 +14,7 @@ Read `CONTEXT.md` first for full project context.
 ## File Structure
 
 ```
-schema.json       — JSON Schema (draft-07) for editor validation/autocompletion
+schema.json          — JSON Schema (draft-07) for editor validation/autocompletion
 examples/
   dev-env.jsonc      — Annotated example with all features
   bootstrap.jsonc    — Example: install Rust, clone repo, build rig
@@ -24,21 +24,21 @@ examples/
     manifest.jsonc
     {{name}}/...     — templated payload files (literal `{{name}}` dirname)
 src/
-  main.rs         — CLI entry point (clap derive) + orchestration + subcommands
-  config.rs       — Config/Step/Action types + parse_config() + validation + build_scope()
-                    + `bundle: Option<BundleMeta>` + `ExpandFlags` on every FsOp
-  executor.rs     — Runner with execute dispatch, dry-run audit, retry tracking, runtime subst,
-                    bundle-aware fs.copy content rendering
-  bundle.rs       — .rig archive format: pack/unpack/info, open_bundle, open_directory,
-                    open_git_repo, looks_like_git_repo, clone_repo, BundleCtx + Drop-based
-                    cleanup, BinaryMatcher (globset)
-  inspect.rs      — --list, --describe, and --graph/--dot/--edges display logic
-  vars.rs         — Variable system: VarRef parser, Scope (with #bundle), substitution with
-                    {{{{...}}}} escape
-  path.rs         — tilde expansion helper
-  style.rs        — aml wrapper for colored output
+  main.rs            — CLI entry point (clap derive) + orchestration + subcommands
+  config.rs          — Config/Step/Action types + parse_config() + validation + build_scope()
+                       + `bundle: Option<BundleMeta>` + `ExpandFlags` on every FsOp
+  executor.rs        — Runner with execute dispatch, dry-run audit, retry tracking, runtime subst,
+                       bundle-aware fs.copy content rendering
+  bundle.rs          — .rig archive format: pack/unpack/info, open_bundle, open_directory,
+                       open_git_repo, looks_like_git_repo, clone_repo, BundleCtx + Drop-based
+                       cleanup, BinaryMatcher (globset)
+  inspect.rs         — --list, --describe, and --graph/--dot/--edges display logic
+  vars.rs            — Variable system: VarRef parser, Scope (with #bundle), substitution with
+                       {{{{...}}}} escape
+  path.rs            — tilde expansion helper
+  style.rs           — aml wrapper for colored output
 tests/
-  cli_bundle.rs   — Integration tests exercising the compiled binary
+  cli_bundle.rs      — Integration tests exercising the compiled binary
 ```
 
 ## Data Model
