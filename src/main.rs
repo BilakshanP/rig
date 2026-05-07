@@ -14,6 +14,7 @@ use std::process::ExitCode;
 #[derive(Parser)]
 #[command(
     name = "rig",
+    version,
     about = "A powerful, cross-platform CLI tool for automating structured workflows from declarative JSON configs"
 )]
 struct Cli {
