@@ -78,6 +78,9 @@ struct Cli {
     /// Set a variable: --set key=value (repeatable, used as {{key}} in config)
     #[arg(long = "set", value_name = "KEY=VALUE")]
     set_vars: Vec<String>,
+    /// Subdirectory within a git repo to use as the bundle root
+    #[arg(long)]
+    fragment: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -145,18 +148,30 @@ fn resolve_input(
     raw: &str,
     vars: &HashMap<String, String>,
     placeholder: bool,
+    fragment: Option<&str>,
 ) -> Result<(String, Option<bundle::BundleCtx>), String> {
     let is_url = raw.starts_with("http://") || raw.starts_with("https://");
     let is_git_ssh = raw.starts_with("git@") || raw.starts_with("ssh://");
     let is_local_dir = !is_url && !is_git_ssh && std::path::Path::new(raw).is_dir();
 
     if is_local_dir {
-        let (_cfg, ctx) = bundle::open_directory(std::path::Path::new(raw), vars, placeholder)
-            .map_err(|e| e.to_string())?;
+        let dir = match fragment {
+            Some(f) => std::path::Path::new(raw).join(f),
+            None => std::path::Path::new(raw).to_path_buf(),
+        };
+        let (_cfg, ctx) =
+            bundle::open_directory(&dir, vars, placeholder).map_err(|e| e.to_string())?;
         Ok(manifest_from_ctx(ctx))
     } else if is_git_ssh || (is_url && bundle::looks_like_git_repo(raw)) {
-        let (_cfg, ctx) =
+        let (_cfg, mut ctx) =
             bundle::open_git_repo(raw, vars, placeholder).map_err(|e| e.to_string())?;
+        if let Some(f) = fragment {
+            let sub = ctx.root.join(f);
+            if !sub.is_dir() {
+                return Err(format!("fragment path '{f}' not found in cloned repo"));
+            }
+            ctx.root = sub;
+        }
         Ok(manifest_from_ctx(ctx))
     } else if is_url {
         let p = fetch_url(raw)?;
@@ -223,14 +238,18 @@ fn main() -> ExitCode {
 
     // Dispatch: determine what kind of input we have and resolve it to a
     // config path + optional BundleCtx.
-    let (config_path, mut bundle_ctx) =
-        match resolve_input(&raw_config, &vars, effective_placeholder) {
-            Ok(resolved) => resolved,
-            Err(e) => {
-                eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
-                return ExitCode::FAILURE;
-            }
-        };
+    let (config_path, mut bundle_ctx) = match resolve_input(
+        &raw_config,
+        &vars,
+        effective_placeholder,
+        cli.fragment.as_deref(),
+    ) {
+        Ok(resolved) => resolved,
+        Err(e) => {
+            eprintln!("{}", style::render(&format!("<fr>error:</f> {e}")));
+            return ExitCode::FAILURE;
+        }
+    };
 
     if cli.list_vars {
         let referenced = match config::scan_vars(&config_path) {
