@@ -375,6 +375,12 @@ A JSON Schema (`schema.json`) is included for editor autocompletion and validati
 { "$schema": "./schema.json" }
 ```
 
+Or pin to a specific release:
+
+```json
+{ "$schema": "https://raw.githubusercontent.com/BilakshanP/rig/v0.6.1/schema.json" }
+```
+
 ## Variables
 
 Rig has a layered variable system with scopes and mutability. Variables use `{{name}}` syntax, are resolved at runtime (not parse time), and fall into five categories based on prefix and case:
