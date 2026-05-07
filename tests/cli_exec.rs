@@ -254,3 +254,42 @@ fn fragment_errors_on_missing_subdir() {
         .unwrap();
     assert!(!out.status.success());
 }
+
+#[test]
+fn meta_on_failure_runs_on_error() {
+    let src = tempfile::tempdir().unwrap();
+    write(
+        &src.path().join("test.json"),
+        r#"{"name":"meta-handler","version":"1.0.0",
+            "meta":{"on-failure":"cleanup"},
+            "steps":[
+                {"name":"fail","action":{"kind":"shell","commands":["exit 1"]}},
+                {"id":"cleanup","name":"cleanup","action":{"kind":"shell","commands":["echo CLEANED_UP"]},"meta":{"optional":true}}
+            ]}"#,
+    );
+    let out = bin().arg(src.path().join("test.json")).output().unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success());
+    assert!(
+        stdout.contains("CLEANED_UP"),
+        "on-failure handler should run"
+    );
+}
+
+#[test]
+fn meta_on_success_runs_on_completion() {
+    let src = tempfile::tempdir().unwrap();
+    write(
+        &src.path().join("test.json"),
+        r#"{"name":"meta-handler","version":"1.0.0",
+            "meta":{"on-success":"done"},
+            "steps":[
+                {"name":"ok","action":{"kind":"shell","commands":["echo HI"]}},
+                {"id":"done","name":"done","action":{"kind":"shell","commands":["echo ALL_DONE"]},"meta":{"optional":true}}
+            ]}"#,
+    );
+    let out = bin().arg(src.path().join("test.json")).output().unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success());
+    assert!(stdout.contains("ALL_DONE"), "on-success handler should run");
+}

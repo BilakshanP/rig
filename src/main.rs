@@ -412,6 +412,7 @@ fn main() -> ExitCode {
         match runner.index.get(id) {
             Some(step) => {
                 if let Err(e) = runner.run_with_deps(step) {
+                    run_meta_handler(&runner, false);
                     return handle_run_error(e, &runner);
                 }
             }
@@ -431,9 +432,11 @@ fn main() -> ExitCode {
             runner.run_steps(&cfg.steps)
         };
         if let Err(e) = result {
+            run_meta_handler(&runner, false);
             return handle_run_error(e, &runner);
         }
     }
+    run_meta_handler(&runner, true);
 
     // If we ran from a bundle, mark success (honors Cleanup::OnSuccess) and
     // surface the staging path when we're keeping it around. The actual
@@ -460,6 +463,23 @@ fn main() -> ExitCode {
 
 /// Print the bundle staging path when the ctx will keep it — helpful on
 /// failure so users can inspect what got unpacked before the error.
+fn run_meta_handler(runner: &executor::Runner, success: bool) {
+    let id = if success {
+        runner.config_meta.on_success.as_deref()
+    } else {
+        runner.config_meta.on_failure.as_deref()
+    };
+    if let Some(id) = id
+        && let Some(step) = runner.index.get(id)
+        && let Err(e) = runner.run_step(step, 0)
+    {
+        eprintln!(
+            "{}",
+            style::render(&format!("<fr>error in meta handler '{id}':</f> {e}"))
+        );
+    }
+}
+
 fn handle_run_error(e: executor::ExecError, runner: &executor::Runner) -> ExitCode {
     if let executor::ExecError::EarlyExit { code, message } = e {
         if let Some(msg) = message {

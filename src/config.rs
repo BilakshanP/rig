@@ -48,6 +48,12 @@ pub struct Meta {
     /// Output mode for parallel execution: "buffered" (default) or "realtime".
     #[serde(default, rename = "parallel-output")]
     pub parallel_output: ParallelOutput,
+    /// Step ID to run if the entire config succeeds.
+    #[serde(default, rename = "on-success")]
+    pub on_success: Option<String>,
+    /// Step ID to run if any step fails (after retries/handlers exhausted).
+    #[serde(default, rename = "on-failure")]
+    pub on_failure: Option<String>,
     /// Raw vars tree. May contain nested objects; flattened into dot-path keys at runtime.
     #[serde(default)]
     pub vars: serde_json::Value,

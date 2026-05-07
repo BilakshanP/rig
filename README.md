@@ -90,6 +90,8 @@ Configs are JSON or JSONC (comments supported). A config has a name, version, op
     "env": { "CI": "true" },                     // global env vars for all shell commands
     "parallel": true,                            // run steps concurrently when depends-on allows
     "parallel-output": true,                     // interleave step output in parallel mode
+    "on-success": "done-step",                   // step ID to run after all steps succeed
+    "on-failure": "cleanup-step",                // step ID to run if any step fails
   },
   "steps": [
     {

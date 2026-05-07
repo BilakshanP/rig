@@ -144,6 +144,14 @@
                     },
                     "description": "Global env vars applied to all shell commands (step-level env merges with/overrides)"
                 },
+                "on-success": {
+                    "type": "string",
+                    "description": "Step ID to run after all steps complete successfully"
+                },
+                "on-failure": {
+                    "type": "string",
+                    "description": "Step ID to run if any step fails (after retries/handlers exhausted)"
+                },
                 "vars": {
                     "type": "object",
                     "description": "Variable defaults (may be nested; overridden by --set). Access via dot notation: {{super.mario.bros}}"
