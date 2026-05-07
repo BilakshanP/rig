@@ -55,6 +55,7 @@ rig https://example.com/setup.rig
 rig https://github.com/user/dev-setup --set name=my-app  # clone repo, find manifest
 rig git@github.com:user/dev-setup.git --set name=my-app  # SSH clone
 rig ./my-template-dir                                    # local directory with manifest
+rig https://github.com/user/templates.git --fragment rust # use a subdirectory
 ```
 
 When given a git repo URL (GitHub, GitLab, Bitbucket, Codeberg, or any `.git`

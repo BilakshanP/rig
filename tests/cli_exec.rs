@@ -200,3 +200,57 @@ fn exit_action_nonzero_code() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("custom error"));
 }
+
+#[test]
+fn fragment_selects_subdirectory() {
+    let src = tempfile::tempdir().unwrap();
+    write(
+        &src.path().join("rust/manifest.json"),
+        r#"{"name":"rust-tmpl","version":"1.0.0","steps":[
+            {"name":"hi","action":{"kind":"io","level":"info","message":"from rust"}}
+        ]}"#,
+    );
+    write(
+        &src.path().join("python/manifest.json"),
+        r#"{"name":"py-tmpl","version":"1.0.0","steps":[
+            {"name":"hi","action":{"kind":"io","level":"info","message":"from python"}}
+        ]}"#,
+    );
+
+    let out = bin()
+        .arg(src.path())
+        .arg("--fragment")
+        .arg("rust")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "fragment rust failed: {stdout}");
+    assert!(stdout.contains("from rust"));
+
+    let out = bin()
+        .arg(src.path())
+        .arg("--fragment")
+        .arg("python")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "fragment python failed: {stdout}");
+    assert!(stdout.contains("from python"));
+}
+
+#[test]
+fn fragment_errors_on_missing_subdir() {
+    let src = tempfile::tempdir().unwrap();
+    write(
+        &src.path().join("rust/manifest.json"),
+        r#"{"name":"x","version":"1.0.0","steps":[]}"#,
+    );
+
+    let out = bin()
+        .arg(src.path())
+        .arg("--fragment")
+        .arg("nonexistent")
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+}

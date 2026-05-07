@@ -133,6 +133,7 @@ rig <config-file> --graph      # Print the dependency graph (ASCII)
 rig <config-file> --dot        # Print the dependency graph (DOT format)
 rig <config-file> --edges      # Print the dependency graph (edge list)
 rig <config-file> --label      # Include step names as labels in graph output
+rig <git-url> --fragment <dir> # Use a subdirectory within a git repo or local dir
 
 rig pack <dir> -o <file>.rig    # Build a .rig bundle from a directory
 rig unpack <file>.rig -o <dir>  # Extract a .rig bundle
