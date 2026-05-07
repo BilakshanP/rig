@@ -15,16 +15,16 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact: rig-linux-x86_64
+            suffix: linux-x86_64
           - os: ubuntu-latest
             target: x86_64-pc-windows-gnu
-            artifact: rig-windows-x86_64.exe
+            suffix: windows-x86_64.exe
           - os: macos-latest
             target: x86_64-apple-darwin
-            artifact: rig-macos-x86_64
+            suffix: macos-x86_64
           - os: macos-latest
             target: aarch64-apple-darwin
-            artifact: rig-macos-aarch64
+            suffix: macos-aarch64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -39,11 +39,11 @@ jobs:
         run: |
           src="target/${{ matrix.target }}/release/rig"
           if [[ "${{ matrix.target }}" == *windows* ]]; then src="${src}.exe"; fi
-          cp "$src" "${{ matrix.artifact }}"
+          cp "$src" "rig-${{ github.ref_name }}-${{ matrix.suffix }}"
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
-          path: ${{ matrix.artifact }}
+          name: rig-${{ github.ref_name }}-${{ matrix.suffix }}
+          path: rig-${{ github.ref_name }}-${{ matrix.suffix }}
 
   release:
     needs: build
@@ -62,7 +62,4 @@ jobs:
             --repo "${{ github.repository }}" \
             --title "${{ github.ref_name }}" \
             --generate-notes \
-            rig-linux-x86_64 \
-            rig-windows-x86_64.exe \
-            rig-macos-x86_64 \
-            rig-macos-aarch64
+            rig-${{ github.ref_name }}-*
