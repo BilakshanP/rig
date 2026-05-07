@@ -1,2 +1,3 @@
 #!/bin/sh
-cargo fmt -- --check && cargo clippy -- -D warnings
+cargo fmt -- --check && cargo clippy -- -D warnings && \
+{ output=$(cargo test --test cli_schema 2>&1) || { echo "$output" | grep "panicked\|failed"; exit 1; } }
